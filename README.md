@@ -3,8 +3,8 @@
 <h3 align="center">Supercharged synchronization plugins from your favorite editors (Logseq & Neovim) to Anki.</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/debanjandhar12/logseq-anki-sync.svg?logo=GitHub&style=flat" alt="GitHub Stars" />
-  <img src="https://img.shields.io/github/sponsors/debanjandhar12.svg?logo=github&style=flat&color=orange&label=Sponsor" alt="Sponsor" />
+  <img src="https://img.shields.io/github/stars/din-grogu/neovim-anki-sync.svg?logo=GitHub&style=flat" alt="GitHub Stars" />
+  <img src="https://img.shields.io/github/sponsors/din-grogu.svg?logo=github&style=flat&color=orange&label=Sponsor" alt="Sponsor" />
 </p>
 
 ---
@@ -26,7 +26,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-    "debanjandhar12/logseq-anki-sync", -- Path to this repository
+    "din-grogu/neovim-anki-sync", -- Path to this repository
     ft = { "markdown", "org" },
     config = function()
         require("neovim-anki-sync").setup({
@@ -73,7 +73,7 @@ A feature-rich plugin for Logseq with advanced rendering, image occlusion, cloze
 3. Install **AnkiConnect** in Anki (add-on code [2055492159](https://ankiweb.net/shared/info/2055492159)).
 4. Restart both applications and click the Sync button in Logseq's toolbar.
 
-For detailed usage, please see the [Logseq Documentation](https://debanjandhar12.github.io/logseq-anki-sync/docs/intro/).
+For detailed usage, please see the [Logseq Documentation](https://din-grogu.github.io/neovim-anki-sync/docs/intro/).
 
 ---
 
@@ -81,4 +81,4 @@ For detailed usage, please see the [Logseq Documentation](https://debanjandhar12
 
 If you love these tools, please consider sponsoring or donating to support their continued development!
 
-* [GitHub Sponsors](https://github.com/sponsors/debanjandhar12)
+* [GitHub Sponsors](https://github.com/sponsors/din-grogu)
