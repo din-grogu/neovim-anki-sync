@@ -156,7 +156,7 @@ function M.sync(filepath)
         
         if not anki_card then
             table.insert(to_create, card)
-        elseif anki_card.hash ~= card.hash or anki_card.deck ~= M.config.deck then
+        elseif anki_card.hash ~= card.hash then
             card.noteId = anki_card.noteId
             table.insert(to_update, card)
         else

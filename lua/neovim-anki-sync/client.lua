@@ -7,7 +7,7 @@ function M.request(action, params)
     local payload = {
         action = action,
         version = 6,
-        params = params or {}
+        params = (params and next(params) ~= nil) and params or vim.empty_dict()
     }
     
     -- Codifica a tabela Lua em JSON usando a API do Neovim
