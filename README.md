@@ -1,63 +1,84 @@
-# Logseq Anki Sync [<img align="right" src="https://img.shields.io/github/stars/debanjandhar12/logseq-anki-sync.svg?logo=GitHub&style=flat" height="30"/>](https://github.com/debanjandhar12/logseq-anki-sync/)[<img align="right" src="https://img.shields.io/github/sponsors/debanjandhar12.svg?logo=github&style=flat&height=60&label=Donate&cacheSeconds=28800&color=orange" height="30"/>](https://github.com/sponsors/debanjandhar12)
+# Anki Sync Suite (Logseq & Neovim)
 
-<h3 align="center">An logseq to anki syncing plugin with super powers.</h3>
-
-## 🚀 Features
-<ul><li>
-<details open>
-  <summary><b>🐾 Supports rendering of logseq markdown and org mode in anki</b></summary>
-  <div>
-   The plugin supports rendering block and page references, pdf annotations, math and everything else.
-   <img src='https://github.com/debanjandhar12/logseq-anki-sync/assets/49021233/7985cdb4-910d-43bf-833d-7b04403a503f' height='440' /> <br/>
-  </div>
-</details></li><li>
-<details>
-  <summary><b>🔥 Several additional features like image occlusion, pdfs, card direction, etc</b></summary>
-  <div>
-   The plugin supports image occlusion, occlusion on pdf annotaion, card direction, incremental cards, clozes, hints and a lot more. Check <a href="#-documentation">documentation</a> for more details!
-   <img src='https://github.com/debanjandhar12/logseq-anki-sync/assets/49021233/5b036383-d7cc-4837-9f74-da21a5f504f8' height='440' /> <br/>
-  </div>
-</details></li><li>
-<details>
-  <summary><b>🃟 Supports various features of anki</b></summary>
-  Anki employs advanced scheduling algorithms, making it a superior choice for many users. Additionally, anki allows the creation of filtered decks, enabling you to study a specific set of cards for exams, regardless of their original scheduling. The plugin allows you to use all those features and various others like heatmaps, tts, leach cards, etc. 
-</details></li><li>
-<details>
-  <summary><b>🚕 Extremely fast</b></summary>
-  The plugin uses state of art hashing techniques to detect changes in logseq or anki and provides the user option to resync (with logseq as source of truth).
-</details></li>
-</ul>
-
-## 🛠️ Installation ([Video](https://www.youtube.com/watch?v=XOkJmncK-o0)) and Documentation
-
-1. Install Logseq Anki Sync from Marketplace.
-    - Go to `⋯` > `Settings` > `Features` and enable `Plugins`.
-    - Now, go to `⋯` > `Plugin` > `Marketplace` and find Logseq Anki Sync and click install.
-2. Download and install [Anki](https://apps.ankiweb.net/) if not done already.
-3. Install AnkiConnect on Anki.
-    - Open Anki.
-    - Select `Tools` > `Add-ons `. Now a Anki addon's dialog will open.
-    - Now click `Get Add-ons...` in addon's dialog and enter [2055492159](https://ankiweb.net/shared/info/2055492159) into the text box labeled `Code` and press the `OK` button to proceed.
-4. **Restart Anki and Logseq**.
-5. Now, you can use the plugin by clicking Sync to Anki button in Logseq's toolbar.<br/>
-   NB: Make sure the anki is running in background before clicking the Sync to Anki button.
-6. If you receive a [logseq wants to access anki message](https://raw.githubusercontent.com/debanjandhar12/Obsidian-Anki-Sync/main/docs/images/permission.png), click `Yes`.
-
-For usage, please see documentation: https://debanjandhar12.github.io/logseq-anki-sync/docs/intro/
-
-> Please create a [github issue](https://github.com/debanjandhar12/logseq-anki-sync/issues) for any feature request and reporting bugs.
-
-> Release branches are db branch and legacy branch at the moment. The main branch is no longer used.
-
-# 🙏 Support
-
-Loved the tool? Please consider donating 💸 to help continue development!<br/>
+<h3 align="center">Supercharged synchronization plugins from your favorite editors (Logseq & Neovim) to Anki.</h3>
 
 <p align="center">
-<a href="https://github.com/sponsors/debanjandhar12" target="_blank"><img src="https://img.shields.io/github/sponsors/debanjandhar12.svg?logo=github&style=flat&height=60&label=Donate&cacheSeconds=28800&color=orange" alt="Sponsors" height="50" style="border-radius:1px" />
+  <img src="https://img.shields.io/github/stars/debanjandhar12/logseq-anki-sync.svg?logo=GitHub&style=flat" alt="GitHub Stars" />
+  <img src="https://img.shields.io/github/sponsors/debanjandhar12.svg?logo=github&style=flat&color=orange&label=Sponsor" alt="Sponsor" />
 </p>
 
-#### Sponsors:
-![sponsors badge](https://readme-contribs.as93.net/sponsors/debanjandhar12?shape=circle)
+---
 
-[@Tubo](https://github.com/Tubo) [@kieranlal](https://github.com/kieranlal) [@Satoriq](https://github.com/Satoriq) [@ryanbl](https://github.com/rtblair) [@LK0624]() [@Dunrar](https://github.com/Dunrar) [@chs33](https://github.com/chs33) [@Koreanki](https://github.com/junyounglees) [@Rumpoled](https://github.com/Rumpoled) [@Resia1](https://github.com/Resia1) [@thiswillbeyourgithub](https://github.com/thiswillbeyourgithub) [@Speedy5onzales](https://github.com/Speedy5onzales) [@ junyounglees]()
+## 1. Neovim Anki Sync (Lua Plugin)
+
+A native, ultra-fast, and **stateless** Lua plugin for Neovim that parses flashcards from Markdown/Org files and syncs them directly to Anki via AnkiConnect.
+
+### 🚀 Features (Neovim)
+* **100% Pure Lua:** Zero external dependencies (no Node.js, python, or npm required). It only uses `curl` in the background.
+* **Stateless Cache (Approach 3):** Content hashes are stored directly within Anki (in the card's `Config` field). No local JSON or SQLite cache files to sync across devices.
+* **In-place UUID Injection:** Automatically generates and inserts unique IDs (`<!-- id: <uuid> -->`) into your notes when syncing new cards.
+* **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard` note type in Anki if they do not exist.
+* **Fast and Asynchronous:** Uses Neovim's built-in JSON encoder/decoder and runs asynchronously so your editor never freezes.
+
+### 🛠️ Installation & Setup
+
+Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{
+    "debanjandhar12/logseq-anki-sync", -- Path to this repository
+    ft = { "markdown", "org" },
+    config = function()
+        require("neovim-anki-sync").setup({
+            deck = "Default",           -- Default deck name in Anki
+            model = "NeovimAnkiCard",    -- Target note type (auto-created if missing)
+            anki_url = "http://127.0.0.1:8765" -- AnkiConnect URL
+        })
+    end
+}
+```
+
+### ✍️ Card Syntax
+
+Simply write your cards as list items ending with `#card`. The list item serves as the front, and all indented lines underneath serve as the back:
+
+```markdown
+- Qual a capital do Brasil? #card
+  A capital é Brasília.
+
+- O que é o Neovim? #card
+  Um editor de texto baseado em Vim, altamente extensível via Lua.
+```
+
+### ⌨️ Commands
+
+* `:AnkiSync` - Synchronizes all cards in the current buffer. Missing UUIDs will be generated and written back to the file.
+* `:AnkiSync <path_to_file>` - Synchronizes a specific file (supports path auto-completion).
+
+---
+
+## 2. Logseq Anki Sync (Logseq Plugin)
+
+A feature-rich plugin for Logseq with advanced rendering, image occlusion, clozes, and PDF annotation support.
+
+### 🚀 Features (Logseq)
+* **Rich rendering:** Support for rendering block/page references, PDF annotations, math equations, and custom cloze templates.
+* **Image Occlusion:** In-app fabric.js canvas editor to draw occlusions directly over images or PDF annotations.
+* **Extremely fast:** Employs an invalidation dependency-graph cache system ([BlockAndPageHashCache.ts](file:///home/dieb/Documentos/git/neovim-anki-sync/src/sync/cache/BlockAndPageHashCache.ts)) to track changes.
+
+### 🛠️ Installation & Setup (Logseq)
+
+1. Enable plugins in Logseq (`Settings` > `Features` > `Plugins`).
+2. Go to `Plugins` > `Marketplace`, search for **Logseq Anki Sync** and install.
+3. Install **AnkiConnect** in Anki (add-on code [2055492159](https://ankiweb.net/shared/info/2055492159)).
+4. Restart both applications and click the Sync button in Logseq's toolbar.
+
+For detailed usage, please see the [Logseq Documentation](https://debanjandhar12.github.io/logseq-anki-sync/docs/intro/).
+
+---
+
+## 🙏 Support & Donations
+
+If you love these tools, please consider sponsoring or donating to support their continued development!
+
+* [GitHub Sponsors](https://github.com/sponsors/debanjandhar12)
