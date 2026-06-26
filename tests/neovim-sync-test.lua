@@ -1,33 +1,33 @@
 -- tests/neovim-sync-test.lua
--- Script de teste para rodar via nvim --headless -l tests/neovim-sync-test.lua
+-- Run via: nvim --headless -l tests/neovim-sync-test.lua
 
--- 1. Configura path do Lua para incluir a pasta lua/ do plugin
+-- 1. Configure Lua path to include the plugin's lua/ directory
 package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua"
 
 local client = require("neovim-anki-sync.client")
 local parser = require("neovim-anki-sync.parser")
 local sync = require("neovim-anki-sync")
 
--- 2. Mock de vim.notify para capturar feedbacks
+-- 2. Mock vim.notify to capture feedback messages
 local last_notifications = {}
 _G.vim.notify = function(msg, level, opts)
     table.insert(last_notifications, msg)
     print("[VIM NOTIFY] (" .. tostring(level) .. ") " .. msg)
 end
 
--- 3. Detecta se AnkiConnect está ativo
+-- 3. Detect if AnkiConnect is active
 local has_real_anki = false
 local ok, version = pcall(function()
     return client.request("version")
 end)
 if ok and version then
     has_real_anki = true
-    print("AnkiConnect real detectado na porta 8765. Rodando teste de integração real.")
+    print("AnkiConnect detected on port 8765. Running live integration tests.")
 else
-    print("AnkiConnect offline. Ativando camada MOCK de simulação do AnkiConnect para teste unitário.")
+    print("AnkiConnect offline. Activating MOCK simulation layer for unit tests.")
 end
 
--- 4. Camada Mock do AnkiConnect
+-- 4. Mock AnkiConnect layer
 local mock_db = {
     models = { "Default" },
     decks = { "Default" },
@@ -50,7 +50,6 @@ if not has_real_anki then
             table.insert(mock_db.models, params.modelName)
             return true
         elseif action == "findNotes" then
-            -- Retorna todas as notas criadas
             local ids = {}
             for id, _ in pairs(mock_db.notes) do
                 table.insert(ids, id)
@@ -95,103 +94,137 @@ if not has_real_anki then
                 end
                 return true
             end
-            return nil, "Nota não encontrada"
+            return nil, "Note not found"
         elseif action == "deleteNotes" then
             for _, id in ipairs(params.notes) do
                 mock_db.notes[id] = nil
             end
             return true
         end
-        return nil, "Ação não mockada: " .. tostring(action)
+        return nil, "Unmocked action: " .. tostring(action)
     end
 end
 
--- 5. Execução do Teste de Integração
+-- 5. Test execution
 local function run_tests()
-    local test_filepath = "tests/test_cards.md"
-    
-    -- Inicializa o plugin
-    sync.setup({
-        deck = "NeovimTestDeck",
-        model = "NeovimTestModel"
-    })
-    
-    -- Garante limpeza pré-teste
+    -- Use a temporary directory structure for testing
+    local test_base = "tests/test_notes"
+    local test_subdir = test_base .. "/Concursos/Estrategia/CFBM"
+    local test_filepath = test_subdir .. "/cards.md"
+    local flat_filepath = test_base .. "/root_cards.md"
+
+    -- Clean up any previous test artifacts
     os.remove(test_filepath)
+    os.remove(flat_filepath)
+    os.execute("rm -rf " .. test_base)
+    os.execute("mkdir -p " .. test_subdir)
     mock_db.notes = {}
-    
-    -- Criar arquivo markdown de teste inicial
+
+    -- Initialize the plugin with notes_dir pointing to our test root
+    local abs_test_base = vim.fn.fnamemodify(test_base, ":p")
+    sync.setup({
+        deck = "Default",
+        model = "NeovimTestModel",
+        notes_dir = abs_test_base
+    })
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 1: Hierarchical deck mapping from directory structure ---")
+    -- ---------------------------------------------------------------
+
+    -- Create card file inside subdirectory
     local f = io.open(test_filepath, "w")
     f:write([[
-# Cartões de Teste
+# CFBM Study Notes
 
-- Cartão A #card
-  Verso do cartão A.
+- What is a public tender? #card
+  A government-organized competitive exam for public positions.
 
-- Cartão B #card
-  Verso do cartão B.
+- What is administrative law? #card
+  The branch of law governing government agencies.
 ]])
     f:close()
-    
-    print("\n--- PASSO 1: Sincronização Inicial (Criação de novos cartões e injeção de UUID) ---")
+
     local ok1 = sync.sync(test_filepath)
-    assert(ok1 == true, "Falha na sincronização inicial")
-    
-    -- Verifica se os UUIDs foram injetados no arquivo
-    local f_read = io.open(test_filepath, "r")
-    local content = f_read:read("*all")
-    f_read:close()
-    
-    assert(content:match("<!%-%-%s*id:%s*.-%s*%-%->") ~= nil, "UUIDs não foram injetados no arquivo")
-    print("UUIDs injetados com sucesso no arquivo Markdown!")
-    
-    -- Salva os UUIDs gerados para testes subsequentes
-    local parsed_cards = parser.parse_file(test_filepath)
-    assert(#parsed_cards == 2, "Deveriam existir 2 cartões")
-    local uuid_a = parsed_cards[1].uuid
-    local uuid_b = parsed_cards[2].uuid
-    print("UUID Cartão A: " .. uuid_a)
-    print("UUID Cartão B: " .. uuid_b)
-    
-    print("\n--- PASSO 2: Rodar Sync Novamente (Sem nenhuma modificação) ---")
-    last_notifications = {}
-    local ok2 = sync.sync(test_filepath)
-    assert(ok2 == true)
+    assert(ok1 == true, "Initial sync failed")
+
+    -- Verify the notification mentions the hierarchical deck name
     local notification = last_notifications[#last_notifications]
-    assert(notification:match("Inalterados: 2") ~= nil, "Deveria ter mantido os 2 cartões inalterados")
-    print("Sincronização redundante evitada com sucesso!")
-    
-    print("\n--- PASSO 3: Modificar um cartão localmente (Atualização) ---")
-    -- Modifica o verso do cartão B
-    local lines = {}
-    local f_lines = io.open(test_filepath, "r")
-    for line in f_lines:lines() do
-        if line:match("Verso do cartão B%.") then
-            line = "  Verso do cartão B modificado."
-        end
-        table.insert(lines, line)
-    end
-    f_lines:close()
-    
-    local f_write = io.open(test_filepath, "w")
-    f_write:write(table.concat(lines, "\n") .. "\n")
-    f_write:close()
-    
+    local expected_deck = "Concursos::Estrategia::CFBM"
+    assert(notification:match(expected_deck), "Deck should be '" .. expected_deck .. "' but got: " .. notification)
+    print("Hierarchical deck '" .. expected_deck .. "' correctly resolved!")
+
+    -- Verify UUIDs were injected
+    local parsed = parser.parse_file(test_filepath)
+    assert(#parsed == 2, "Should have found 2 cards")
+    assert(parsed[1].uuid ~= nil, "Card 1 should have a UUID")
+    assert(parsed[2].uuid ~= nil, "Card 2 should have a UUID")
+    print("UUIDs injected: " .. parsed[1].uuid .. ", " .. parsed[2].uuid)
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 2: File at root of notes_dir uses fallback deck ---")
+    -- ---------------------------------------------------------------
+
+    local f2 = io.open(flat_filepath, "w")
+    f2:write([[
+- A root-level card #card
+  This card has no subdirectory hierarchy.
+]])
+    f2:close()
+
+    last_notifications = {}
+    local ok2 = sync.sync(flat_filepath)
+    assert(ok2 == true, "Root-level sync failed")
+    notification = last_notifications[#last_notifications]
+    assert(notification:match("Default"), "Root-level file should use fallback deck 'Default', got: " .. notification)
+    print("Root-level file correctly mapped to fallback deck 'Default'!")
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 3: Idempotent sync (no changes) ---")
+    -- ---------------------------------------------------------------
+
     last_notifications = {}
     local ok3 = sync.sync(test_filepath)
     assert(ok3 == true)
     notification = last_notifications[#last_notifications]
-    assert(notification:match("Atualizados: 1") ~= nil, "Deveria ter atualizado 1 cartão")
-    assert(notification:match("Inalterados: 1") ~= nil, "Deveria ter mantido 1 cartão inalterado")
-    print("Cartão atualizado com sucesso!")
-    
-    print("\n--- PASSO 4: Deletar um cartão localmente (Remoção) ---")
-    -- Remove o cartão A
+    assert(notification:match("Unchanged: 2"), "Should have 2 unchanged cards, got: " .. notification)
+    print("Idempotent sync verified!")
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 4: Update a card ---")
+    -- ---------------------------------------------------------------
+
+    local lines = {}
+    local f_lines = io.open(test_filepath, "r")
+    for line in f_lines:lines() do
+        if line:match("competitive exam for public positions") then
+            line = "  A government selection process through competitive examination."
+        end
+        table.insert(lines, line)
+    end
+    f_lines:close()
+
+    local f_write = io.open(test_filepath, "w")
+    f_write:write(table.concat(lines, "\n") .. "\n")
+    f_write:close()
+
+    last_notifications = {}
+    local ok4 = sync.sync(test_filepath)
+    assert(ok4 == true)
+    notification = last_notifications[#last_notifications]
+    assert(notification:match("Updated: 1"), "Should have updated 1 card, got: " .. notification)
+    assert(notification:match("Unchanged: 1"), "Should have 1 unchanged card, got: " .. notification)
+    print("Card update verified!")
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 5: Delete a card ---")
+    -- ---------------------------------------------------------------
+
     local clean_lines = {}
     local skip_mode = false
     local f_del = io.open(test_filepath, "r")
     for line in f_del:lines() do
-        if line:match("Cartão A") then
+        if line:match("administrative law") then
             skip_mode = true
         elseif skip_mode and not line:match("^%s") and line ~= "" then
             skip_mode = false
@@ -201,29 +234,32 @@ local function run_tests()
         end
     end
     f_del:close()
-    
+
     local f_write_del = io.open(test_filepath, "w")
     f_write_del:write(table.concat(clean_lines, "\n") .. "\n")
     f_write_del:close()
-    
+
     last_notifications = {}
-    local ok4 = sync.sync(test_filepath)
-    assert(ok4 == true)
+    local ok5 = sync.sync(test_filepath)
+    assert(ok5 == true)
     notification = last_notifications[#last_notifications]
-    assert(notification:match("Removidos: 1") ~= nil, "Deveria ter removido 1 cartão")
-    assert(notification:match("Inalterados: 1") ~= nil, "Deveria ter mantido 1 cartão inalterado")
-    print("Cartão excluído com sucesso do Anki!")
-    
-    -- Limpeza final
-    os.remove(test_filepath)
+    assert(notification:match("Deleted: 1"), "Should have deleted 1 card, got: " .. notification)
+    assert(notification:match("Unchanged: 1"), "Should have 1 unchanged card, got: " .. notification)
+    print("Card deletion verified!")
+
+    -- Clean up test artifacts
+    os.execute("rm -rf " .. test_base)
+
     print("\n==================================================")
-    print("             TODOS OS TESTES PASSARAM!            ")
+    print("             ALL TESTS PASSED!                    ")
     print("==================================================")
 end
 
 local success, err = pcall(run_tests)
 if not success then
-    print("\n[ERRO NO TESTE]: " .. tostring(err))
+    print("\n[TEST ERROR]: " .. tostring(err))
+    -- Clean up on failure too
+    os.execute("rm -rf tests/test_notes")
     os.exit(1)
 else
     os.exit(0)
