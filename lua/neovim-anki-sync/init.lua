@@ -18,58 +18,68 @@ function M.setup(opts)
     client.anki_url = M.config.anki_url
 end
 
---- Resolve the Anki deck name from a filepath based on directory hierarchy.
---- If `notes_dir` is configured, the relative path from `notes_dir` to the
---- file's parent directory is converted to the Anki sub-deck separator `::`.
----
---- Example:
----   notes_dir = "/home/user/notes"
----   filepath  = "/home/user/notes/Concursos/Estratégia/CFBM/cards.md"
----   result    = "Concursos::Estratégia::CFBM"
----
---- If the file is directly inside `notes_dir` (no subdirectories), the
---- fallback `M.config.deck` is used instead.
-local function resolve_deck_name(filepath)
-    local notes_dir = M.config.notes_dir
-    if not notes_dir then
-        return M.config.deck
-    end
+-- Helper functions to hex encode/decode strings
+local function hex_encode(str)
+    return (str:gsub('.', function (c)
+        return string.format('%02x', string.byte(c))
+    end))
+end
 
-    -- Normalize both paths: resolve symlinks, trailing slashes, etc.
-    notes_dir = vim.fn.resolve(vim.fn.fnamemodify(notes_dir, ":p"))
+local function hex_decode(str)
+    return (str:gsub('..', function (cc)
+        return string.char(tonumber(cc, 16))
+    end))
+end
+
+--- Resolve notes_dir and relative file paths.
+--- If M.config.notes_dir is not configured, it tries to detect the git root,
+--- falling back to the current working directory of Neovim.
+local function get_notes_dir_and_relative(filepath)
     filepath = vim.fn.resolve(vim.fn.fnamemodify(filepath, ":p"))
-
-    -- Get the directory containing the file
-    local file_dir = vim.fn.fnamemodify(filepath, ":h")
-
-    -- Ensure trailing slash for prefix matching
+    
+    local notes_dir = M.config.notes_dir
+    if not notes_dir or notes_dir == "" then
+        local git_dir = vim.fs.find(".git", { path = filepath, upward = true })[1]
+        if git_dir then
+            notes_dir = vim.fs.dirname(git_dir)
+        else
+            notes_dir = vim.fn.getcwd()
+        end
+    end
+    
+    notes_dir = vim.fn.resolve(vim.fn.fnamemodify(notes_dir, ":p"))
     if not notes_dir:match("/$") then
         notes_dir = notes_dir .. "/"
     end
+    
+    local file_dir = vim.fn.fnamemodify(filepath, ":h")
     if not file_dir:match("/$") then
         file_dir = file_dir .. "/"
     end
+    
+    local relative_dir = ""
+    if file_dir:sub(1, #notes_dir) == notes_dir then
+        relative_dir = file_dir:sub(#notes_dir + 1)
+        relative_dir = relative_dir:gsub("/$", "")
+    end
+    
+    local filename = vim.fn.fnamemodify(filepath, ":t")
+    local relative_file
+    if relative_dir == "" then
+        relative_file = filename
+    else
+        relative_file = relative_dir .. "/" .. filename
+    end
+    
+    return notes_dir, relative_dir, relative_file
+end
 
-    -- Check if the file lives under notes_dir
-    if not file_dir:sub(1, #notes_dir) == notes_dir then
+--- Resolve the Anki deck name from relative_dir.
+local function resolve_deck_name(relative_dir)
+    if relative_dir == "" then
         return M.config.deck
     end
-
-    -- Extract the relative path
-    local relative = file_dir:sub(#notes_dir + 1)
-
-    -- Remove trailing slash
-    relative = relative:gsub("/$", "")
-
-    -- If the file is directly inside notes_dir (no subdirectory), use fallback deck
-    if relative == "" then
-        return M.config.deck
-    end
-
-    -- Convert directory separators to Anki's sub-deck separator `::`
-    local deck_name = relative:gsub("/", "::")
-
-    return deck_name
+    return (relative_dir:gsub("/", "::"))
 end
 
 -- Ensure the custom note model exists in Anki
@@ -110,19 +120,10 @@ end
 
 -- Ensure a given deck exists in Anki, creating it if necessary
 local function ensure_deck(deck_name)
-    local decks, deck_err = client.request("deckNames")
-    if not decks then
-        return false, "Failed to fetch Anki decks: " .. tostring(deck_err)
-    end
-    local has_deck = false
-    for _, d in ipairs(decks) do
-        if d == deck_name then
-            has_deck = true
-            break
-        end
-    end
-    if not has_deck then
-        client.request("createDeck", { deck = deck_name })
+    -- createDeck is safe and idempotent in AnkiConnect
+    local ok, err = client.request("createDeck", { deck = deck_name })
+    if not ok then
+        return false, "Failed to create deck: " .. tostring(err)
     end
     return true
 end
@@ -146,8 +147,9 @@ function M.sync(filepath)
         return false
     end
 
-    -- 2. Resolve deck name from directory hierarchy
-    local deck_name = resolve_deck_name(filepath)
+    -- 2. Resolve paths and deck name
+    local notes_dir, relative_dir, relative_file = get_notes_dir_and_relative(filepath)
+    local deck_name = resolve_deck_name(relative_dir)
 
     -- 3. Ensure deck exists
     local deck_ok, deck_err = ensure_deck(deck_name)
@@ -178,31 +180,96 @@ function M.sync(filepath)
     -- Reload buffer if UUIDs were injected
     vim.cmd("checktime")
 
-    -- 6. Fetch existing notes from Anki scoped to this deck and model
-    local query = string.format("\"note:%s\" \"deck:%s\"", M.config.model, deck_name)
-    local note_ids, find_err = client.find_notes(query)
-    if not note_ids then
-        vim.notify("Failed to find Anki notes: " .. tostring(find_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+    -- 6. Fetch existing notes from Anki for this file or UUIDs
+    local hex_path = hex_encode(relative_file)
+    
+    -- Query A: Notes synced to this file path
+    local query_file = string.format("\"note:%s\" \"Config:*path:%s*\"", M.config.model, hex_path)
+    local file_note_ids, err_file = client.find_notes(query_file)
+    if not file_note_ids then
+        vim.notify("Failed to find file notes: " .. tostring(err_file), vim.log.levels.ERROR, { title = "Anki Sync" })
         return false
     end
+    
+    -- Query B: Notes matching current local UUIDs
+    local uuids = {}
+    for _, card in ipairs(local_cards) do
+        table.insert(uuids, string.format("\"UUID:%s\"", card.uuid))
+    end
+    local query_uuids = string.format("\"note:%s\" (%s)", M.config.model, table.concat(uuids, " OR "))
+    local uuid_note_ids, err_uuids = client.find_notes(query_uuids)
+    if not uuid_note_ids then
+        vim.notify("Failed to find UUID notes: " .. tostring(err_uuids), vim.log.levels.ERROR, { title = "Anki Sync" })
+        return false
+    end
+    
+    -- Merge note IDs from both queries
+    local all_note_ids_set = {}
+    local all_note_ids = {}
+    for _, id in ipairs(file_note_ids) do
+        if not all_note_ids_set[id] then
+            all_note_ids_set[id] = true
+            table.insert(all_note_ids, id)
+        end
+    end
+    for _, id in ipairs(uuid_note_ids) do
+        if not all_note_ids_set[id] then
+            all_note_ids_set[id] = true
+            table.insert(all_note_ids, id)
+        end
+    end
 
-    local existing_anki_cards = {}
-    if #note_ids > 0 then
-        local notes, info_err = client.notes_info(note_ids)
+    local existing_notes_by_uuid = {}
+    if #all_note_ids > 0 then
+        local notes, info_err = client.notes_info(all_note_ids)
         if not notes then
             vim.notify("Failed to get note info: " .. tostring(info_err), vim.log.levels.ERROR, { title = "Anki Sync" })
             return false
+        end
+
+        -- Fetch card info to get the deck name of each note's cards
+        local card_ids = {}
+        for _, note in ipairs(notes) do
+            if note.cards then
+                for _, cid in ipairs(note.cards) do
+                    table.insert(card_ids, cid)
+                end
+            end
+        end
+
+        local card_decks = {}
+        if #card_ids > 0 then
+            local cards_info, err_cards = client.request("cardsInfo", { cards = card_ids })
+            if not cards_info then
+                vim.notify("Failed to get cards info: " .. tostring(err_cards), vim.log.levels.ERROR, { title = "Anki Sync" })
+                return false
+            end
+            for _, card in ipairs(cards_info) do
+                card_decks[card.cardId] = card.deckName
+            end
         end
 
         for _, note in ipairs(notes) do
             local uuid = note.fields.UUID and note.fields.UUID.value
             local config_val = note.fields.Config and note.fields.Config.value or ""
             local hash = config_val:match("hash:(%x+)")
+            local path = config_val:match("path:(%x+)")
+            if path then
+                path = hex_decode(path)
+            end
+
+            local current_deck = nil
+            if note.cards and #note.cards > 0 then
+                current_deck = card_decks[note.cards[1]]
+            end
 
             if uuid and uuid ~= "" then
-                existing_anki_cards[uuid] = {
+                existing_notes_by_uuid[uuid] = {
                     noteId = note.noteId,
-                    hash = hash
+                    cardIds = note.cards,
+                    hash = hash,
+                    path = path,
+                    deckName = current_deck
                 }
             end
         end
@@ -216,23 +283,34 @@ function M.sync(filepath)
 
     for _, card in ipairs(local_cards) do
         local_uuids[card.uuid] = true
-        local anki_card = existing_anki_cards[card.uuid]
+        local anki_note = existing_notes_by_uuid[card.uuid]
 
-        if not anki_card then
+        if not anki_note then
             table.insert(to_create, card)
-        elseif anki_card.hash ~= card.hash then
-            card.noteId = anki_card.noteId
-            table.insert(to_update, card)
         else
-            table.insert(to_keep, card)
+            card.noteId = anki_note.noteId
+            card.cardIds = anki_note.cardIds
+
+            local deck_changed = anki_note.deckName ~= deck_name
+            local path_changed = anki_note.path ~= relative_file
+            local hash_changed = anki_note.hash ~= card.hash
+
+            if deck_changed or path_changed or hash_changed then
+                card.deck_changed = deck_changed
+                card.path_changed = path_changed
+                card.hash_changed = hash_changed
+                table.insert(to_update, card)
+            else
+                table.insert(to_keep, card)
+            end
         end
     end
 
-    -- Notes to delete from Anki (exist in Anki but not in local file)
+    -- Notes to delete (belonged to this file path, but no longer exist locally)
     local to_delete = {}
-    for uuid, anki_card in pairs(existing_anki_cards) do
-        if not local_uuids[uuid] then
-            table.insert(to_delete, { noteId = anki_card.noteId, uuid = uuid })
+    for uuid, anki_note in pairs(existing_notes_by_uuid) do
+        if anki_note.path == relative_file and not local_uuids[uuid] then
+            table.insert(to_delete, anki_note.noteId)
         end
     end
 
@@ -249,7 +327,7 @@ function M.sync(filepath)
                     Front = card.front,
                     Back = card.back,
                     UUID = card.uuid,
-                    Config = "hash:" .. card.hash
+                    Config = string.format("hash:%s path:%s", card.hash, hex_path)
                 },
                 options = { allowDuplicate = true },
                 tags = { "neovim-sync" }
@@ -262,16 +340,29 @@ function M.sync(filepath)
         end
     end
 
-    -- Update
+    -- Update (including changing deck/path)
     if #to_update > 0 then
         for _, card in ipairs(to_update) do
+            -- A. Move deck if changed
+            if card.deck_changed and card.cardIds and #card.cardIds > 0 then
+                local ok, move_err = client.request("changeDeck", {
+                    cards = card.cardIds,
+                    deck = deck_name
+                })
+                if not ok then
+                    vim.notify("Failed to move note " .. tostring(card.noteId) .. " to deck " .. deck_name .. ": " .. tostring(move_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+                    return false
+                end
+            end
+
+            -- B. Update fields and Config
             local ok, upd_err = client.update_note_fields({
                 id = card.noteId,
                 fields = {
                     Front = card.front,
                     Back = card.back,
                     UUID = card.uuid,
-                    Config = "hash:" .. card.hash
+                    Config = string.format("hash:%s path:%s", card.hash, hex_path)
                 }
             })
             if not ok then
@@ -283,11 +374,7 @@ function M.sync(filepath)
 
     -- Delete
     if #to_delete > 0 then
-        local delete_ids = {}
-        for _, card in ipairs(to_delete) do
-            table.insert(delete_ids, card.noteId)
-        end
-        local ok, del_err = client.delete_notes(delete_ids)
+        local ok, del_err = client.delete_notes(to_delete)
         if not ok then
             vim.notify("Failed to delete Anki notes: " .. tostring(del_err), vim.log.levels.ERROR, { title = "Anki Sync" })
             return false
@@ -303,7 +390,8 @@ function M.sync(filepath)
     return true
 end
 
--- Expose resolve_deck_name for testing
+-- Expose helpers for testing
+M._get_notes_dir_and_relative = get_notes_dir_and_relative
 M._resolve_deck_name = resolve_deck_name
 
 return M

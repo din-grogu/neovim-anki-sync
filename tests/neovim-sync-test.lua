@@ -50,9 +50,30 @@ if not has_real_anki then
             table.insert(mock_db.models, params.modelName)
             return true
         elseif action == "findNotes" then
+            local query = params.query
             local ids = {}
-            for id, _ in pairs(mock_db.notes) do
-                table.insert(ids, id)
+            for id, note in pairs(mock_db.notes) do
+                local match = false
+                if query:match("UUID:") then
+                    local uuid_val = note.fields.UUID.value
+                    if uuid_val and uuid_val ~= "" and query:find(uuid_val, 1, true) then
+                        match = true
+                    end
+                elseif query:match("path:") then
+                    local path_pattern = query:match("path:(%x+)")
+                    local config_val = note.fields.Config.value
+                    if path_pattern and config_val and config_val:find("path:" .. path_pattern, 1, true) then
+                        match = true
+                    end
+                else
+                    if query:find("note:" .. note.modelName, 1, true) then
+                        match = true
+                    end
+                end
+                
+                if match then
+                    table.insert(ids, id)
+                end
             end
             return ids
         elseif action == "notesInfo" then
@@ -62,13 +83,43 @@ if not has_real_anki then
                 if note then
                     table.insert(result, {
                         noteId = id,
-                        deckName = note.deckName,
                         modelName = note.modelName,
-                        fields = note.fields
+                        fields = note.fields,
+                        cards = note.cards
                     })
                 end
             end
             return result
+        elseif action == "cardsInfo" then
+            local result = {}
+            for _, cid in ipairs(params.cards) do
+                for note_id, note in pairs(mock_db.notes) do
+                    for _, note_cid in ipairs(note.cards) do
+                        if note_cid == cid then
+                            table.insert(result, {
+                                cardId = cid,
+                                deckName = note.deckName,
+                                modelName = note.modelName,
+                                fields = note.fields
+                            })
+                            break
+                        end
+                    end
+                end
+            end
+            return result
+        elseif action == "changeDeck" then
+            for _, cid in ipairs(params.cards) do
+                for note_id, note in pairs(mock_db.notes) do
+                    for _, note_cid in ipairs(note.cards) do
+                        if note_cid == cid then
+                            note.deckName = params.deck
+                            break
+                        end
+                    end
+                end
+            end
+            return true
         elseif action == "addNotes" then
             local ids = {}
             for _, note in ipairs(params.notes) do
@@ -81,7 +132,8 @@ if not has_real_anki then
                         Back = { value = note.fields.Back },
                         UUID = { value = note.fields.UUID },
                         Config = { value = note.fields.Config }
-                    }
+                    },
+                    cards = { mock_id_counter + 10000 }
                 }
                 table.insert(ids, mock_id_counter)
             end
@@ -246,6 +298,45 @@ local function run_tests()
     assert(notification:match("Deleted: 1"), "Should have deleted 1 card, got: " .. notification)
     assert(notification:match("Unchanged: 1"), "Should have 1 unchanged card, got: " .. notification)
     print("Card deletion verified!")
+
+    -- ---------------------------------------------------------------
+    print("\n--- TEST 6: Move cards/file to a different subdirectory/deck ---")
+    -- ---------------------------------------------------------------
+
+    local new_subdir = test_base .. "/Concursos/OutroDecker"
+    local new_filepath = new_subdir .. "/cards.md"
+    os.execute("mkdir -p " .. new_subdir)
+    
+    -- Rename/move the file to the new directory
+    os.rename(test_filepath, new_filepath)
+    
+    -- Read the UUID of the remaining card in the moved file
+    local moved_parsed = parser.parse_file(new_filepath)
+    assert(#moved_parsed == 1, "Should have 1 card in moved file")
+    local moved_uuid = moved_parsed[1].uuid
+
+    last_notifications = {}
+    local ok6 = sync.sync(new_filepath)
+    assert(ok6 == true, "Sync after moving file failed")
+    
+    notification = last_notifications[#last_notifications]
+    local expected_new_deck = "Concursos::OutroDecker"
+    assert(notification:match(expected_new_deck), "Deck should be '" .. expected_new_deck .. "' but got: " .. notification)
+    
+    -- Verify in mock_db that the card's deck name was updated and config path was updated
+    local found_note = nil
+    local note_count = 0
+    for _, note in pairs(mock_db.notes) do
+        if note.fields.UUID.value == moved_uuid then
+            found_note = note
+            note_count = note_count + 1
+        end
+    end
+    assert(found_note ~= nil, "Note not found in mock DB")
+    assert(note_count == 1, "Expected exactly 1 note in mock DB for this UUID, found: " .. tostring(note_count))
+    assert(found_note.deckName == "Concursos::OutroDecker", "Mock note deck name not updated, got: " .. tostring(found_note.deckName))
+    assert(found_note.fields.Config.value:match("path:"), "Mock note path config not updated")
+    print("Move file and hierarchical deck update verified successfully!")
 
     -- Clean up test artifacts
     os.execute("rm -rf " .. test_base)
