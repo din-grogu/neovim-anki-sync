@@ -220,6 +220,7 @@ function M.parse_lines(lines)
         
         -- O verso fica vazio no formato multiline, já que o próprio cloze revela a resposta
         local final_back = ""
+        local full_content = final_front
         
         -- Extrai tags em linha do cabeçalho
         local inline_tags = {}
