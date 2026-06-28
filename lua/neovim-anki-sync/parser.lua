@@ -203,7 +203,23 @@ function M.parse_lines(lines)
         if clean_body == "" and vim.trim(body) ~= "" then
             clean_body = vim.trim(body)
         end
-        local full_content = clean_front .. "\n" .. clean_body
+        
+        -- Verifica se o usuário já especificou algum cloze manualmente
+        local has_cloze = (clean_front .. clean_body):match("{{c%d+::")
+        if not has_cloze then
+            if clean_body ~= "" then
+                clean_body = "{{c1::\n" .. clean_body .. "\n}}"
+            else
+                -- Anki requires at least one cloze deletion for cloze note types
+                clean_front = clean_front .. " {{c1::}}"
+            end
+        end
+        
+        -- Multiline card logic: Combines parent and children in the front field
+        local final_front = context_html .. "<ul><li>" .. clean_front .. "\n" .. clean_body .. "\n</li></ul>"
+        
+        -- O verso fica vazio no formato multiline, já que o próprio cloze revela a resposta
+        local final_back = ""
         
         -- Extrai tags em linha do cabeçalho
         local inline_tags = {}
@@ -214,16 +230,16 @@ function M.parse_lines(lines)
         end
         
         table.insert(processed_cards, {
+            front = final_front,
+            back = final_back,
             uuid = raw_card.uuid,
-            front = clean_front,
-            back = clean_body,
             hash = M.hash(full_content),
+            properties = raw_card.properties,
+            global_properties = global_properties,
             line_number = raw_card.line_number,
             raw_header = raw_card.raw_header,
             breadcrumbs = raw_card.breadcrumbs,
             parent_bullets = raw_card.parent_bullets,
-            properties = raw_card.properties,
-            global_properties = global_properties,
             inline_tags = inline_tags
         })
     end

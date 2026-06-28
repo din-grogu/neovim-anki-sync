@@ -6,7 +6,7 @@ local M = {}
 -- Default configuration
 M.config = {
     deck = "Default",            -- Fallback deck when file is outside notes_dir
-    model = "NeovimAnkiCard",    -- Note type name in Anki
+    model = "NeovimAnkiCard-Cloze",    -- Note type name in Anki (changed to support multiline clozes)
     anki_url = "http://127.0.0.1:8765",
     notes_dir = nil              -- Root directory for hierarchical deck mapping (optional)
 }
@@ -52,7 +52,7 @@ local function get_notes_dir_and_relative(filepath)
         notes_dir = notes_dir .. "/"
     end
     
-    local file_dir = vim.fn.fnamemodify(filepath, ":h")
+    local file_dir = vim.fn.fnamemodify(filepath, ":p:h")
     if not file_dir:match("/$") then
         file_dir = file_dir .. "/"
     end
@@ -109,12 +109,13 @@ local function ensure_anki_model()
         local ok, create_err = client.request("createModel", {
             modelName = M.config.model,
             inOrderFields = { "Front", "Back", "UUID", "Config" },
-            css = ".card {\n font-family: arial;\n font-size: 20px;\n text-align: center;\n color: black;\n background-color: white;\n}\n",
+            isCloze = true,
+            css = ".card {\n font-family: arial;\n font-size: 20px;\n text-align: left;\n color: black;\n background-color: white;\n}\n",
             cardTemplates = {
                 {
                     Name = "Card 1",
-                    Front = "{{Front}}",
-                    Back = "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}"
+                    Front = "{{cloze:Front}}",
+                    Back = "{{cloze:Front}}\n\n<hr id=answer>\n\n{{Back}}"
                 }
             }
         })
