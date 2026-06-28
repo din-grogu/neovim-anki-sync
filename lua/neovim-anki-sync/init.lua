@@ -300,9 +300,24 @@ function M.sync(filepath)
         -- Context (Breadcrumbs & Parent Bullets)
         local context_html = ""
         
+        -- Build breadcrumbs from relative directory and filename, then append card headers
+        local full_breadcrumbs = {}
+        if relative_dir ~= "" then
+            for segment in string.gmatch(relative_dir, "[^/]+") do
+                table.insert(full_breadcrumbs, segment)
+            end
+        end
+        table.insert(full_breadcrumbs, vim.fn.fnamemodify(filename, ":r"))
+        
+        if card.breadcrumbs then
+            for _, b in ipairs(card.breadcrumbs) do
+                table.insert(full_breadcrumbs, b)
+            end
+        end
+        
         -- Render headers
-        if card.breadcrumbs and #card.breadcrumbs > 0 then
-            context_html = context_html .. "<div class='breadcrumbs'>" .. table.concat(card.breadcrumbs, " &gt; ") .. "</div>"
+        if #full_breadcrumbs > 0 then
+            context_html = context_html .. "<div class='breadcrumbs'>" .. table.concat(full_breadcrumbs, " &gt; ") .. "</div>"
         end
         
         -- Render parent bullets (Markdown style hierarchy)
