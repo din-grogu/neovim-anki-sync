@@ -403,7 +403,11 @@ function M.sync(filepath)
         end
         local create_res, create_err = client.add_notes(new_notes)
         if not create_res then
-            vim.notify("Failed to create Anki notes: " .. tostring(create_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+            local hint = ""
+            if tostring(create_err):match("cannot create note for unknown reason") then
+                hint = "\n\nHINT: This error usually means you are trying to sync Cloze cards (or multiline cards which use clozes under the hood) to a Basic note type (like '" .. M.config.model .. "').\nTo fix this:\n1. Restart Neovim to load the new default model 'NeovimAnkiCard-Cloze'.\n2. If you overrode the model name in your config, update it or remove the override.\n3. Alternatively, manually change the Note Type of '" .. M.config.model .. "' to 'Cloze' inside Anki (Tools > Manage Note Types > select model > Change Note Type > select Cloze)."
+            end
+            vim.notify("Failed to create Anki notes: " .. tostring(create_err) .. hint, vim.log.levels.ERROR, { title = "Anki Sync" })
             return false
         end
     end
