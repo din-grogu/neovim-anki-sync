@@ -138,6 +138,48 @@ function M.parse_lines(lines)
         table.insert(cards, current_card)
     end
     
+    -- Converte linhas de corpo com bullets para HTML mantendo a hierarquia
+    local function markdown_list_to_html(lines)
+        local html = ""
+        local stack = {}
+        for _, line in ipairs(lines) do
+            local indent, bullet, text = line:match("^(%s*)([%-%*])%s(.*)")
+            if indent then
+                local indent_len = #indent
+                while #stack > 0 and stack[#stack] > indent_len do
+                    html = html .. "</li></ul>"
+                    table.remove(stack)
+                end
+                
+                if #stack > 0 and stack[#stack] == indent_len then
+                    html = html .. "</li>"
+                end
+                
+                if #stack == 0 or stack[#stack] < indent_len then
+                    html = html .. "<ul>"
+                    table.insert(stack, indent_len)
+                end
+                
+                html = html .. "<li>" .. vim.trim(text)
+            else
+                if vim.trim(line) ~= "" then
+                    if #stack > 0 then
+                        html = html .. "<br/>" .. vim.trim(line)
+                    else
+                        html = html .. vim.trim(line) .. "<br/>"
+                    end
+                end
+            end
+        end
+        
+        while #stack > 0 do
+            html = html .. "</li></ul>"
+            table.remove(stack)
+        end
+        
+        return html
+    end
+    
     -- Pós-processamento
     local processed_cards = {}
     for _, raw_card in ipairs(cards) do
@@ -150,7 +192,10 @@ function M.parse_lines(lines)
         clean_front = clean_front:gsub("^%s*#+%s*", "")
         clean_front = vim.trim(clean_front)
         
-        local clean_body = vim.trim(body)
+        local clean_body = markdown_list_to_html(raw_card.body_lines)
+        if clean_body == "" and vim.trim(body) ~= "" then
+            clean_body = vim.trim(body)
+        end
         local full_content = clean_front .. "\n" .. clean_body
         
         -- Extrai tags em linha do cabeçalho
