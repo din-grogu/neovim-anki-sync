@@ -295,15 +295,15 @@ function M.sync(filepath)
             context_html = context_html .. "<div class='breadcrumbs'>" .. table.concat(card.breadcrumbs, " &gt; ") .. "</div>"
         end
         
-        -- Render parent bullets (Logseq style)
+        -- Render parent bullets (Markdown style hierarchy)
         if card.parent_bullets and #card.parent_bullets > 0 then
             local bullets_html = ""
             for _, bullet in ipairs(card.parent_bullets) do
-                bullets_html = bullets_html .. "<ul class='children-list'><li class='children'>" .. bullet
+                bullets_html = bullets_html .. "<ul><li>" .. bullet
             end
             
             -- Close the bullet tags around the front text
-            bullets_html = bullets_html .. "<ul class='children-list'><li class='children'>" .. card.front .. "</li></ul>"
+            bullets_html = bullets_html .. "<ul><li>" .. card.front .. "</li></ul>"
             
             for i = 1, #card.parent_bullets do
                 bullets_html = bullets_html .. "</li></ul>"
@@ -314,7 +314,7 @@ function M.sync(filepath)
             card.final_front = context_html
         else
             if context_html ~= "" then context_html = context_html .. "<br/>" end
-            card.final_front = context_html .. card.front
+            card.final_front = context_html .. "<ul><li>" .. card.front .. "</li></ul>"
         end
         
         -- Tags
