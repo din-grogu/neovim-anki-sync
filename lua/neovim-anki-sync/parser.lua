@@ -75,6 +75,9 @@ function M.parse_lines(lines)
                 table.insert(cards, current_card)
             end
             
+            local indent_str = line:match("^(%s*)")
+            local card_indent_len = #indent_str
+            
             local uuid = line:match("<!%-%-%s*id:%s*(.-)%s*%-%->")
             
             -- Copia os breadcrumbs atuais para o cartão
@@ -96,14 +99,16 @@ function M.parse_lines(lines)
                 body_lines = {},
                 properties = {},
                 breadcrumbs = card_breadcrumbs,
-                parent_bullets = card_parent_bullets
+                parent_bullets = card_parent_bullets,
+                indent_len = card_indent_len
             }
         elseif current_card then
             -- Linha dentro de um cartão
-            local is_indented = line:match("^%s+")
+            local line_indent_str = line:match("^(%s*)")
+            local line_indent_len = #line_indent_str
             local is_empty = line:match("^%s*$")
             
-            if is_indented or is_empty then
+            if is_empty or line_indent_len > current_card.indent_len then
                 -- Verifica se a linha é uma propriedade
                 local k, v = parse_property(line)
                 if k then
@@ -112,7 +117,7 @@ function M.parse_lines(lines)
                     table.insert(current_card.body_lines, line)
                 end
             else
-                -- Linha não identada termina o cartão
+                -- A linha não é um filho do cartão atual
                 table.insert(cards, current_card)
                 current_card = nil
             end
