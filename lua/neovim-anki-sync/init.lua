@@ -287,12 +287,35 @@ function M.sync(filepath)
         local_uuids[card.uuid] = true
         local anki_note = existing_notes_by_uuid[card.uuid]
         
-        -- Breadcrumbs
-        local breadcrumbs_html = ""
+        -- Context (Breadcrumbs & Parent Bullets)
+        local context_html = ""
+        
+        -- Render headers
         if card.breadcrumbs and #card.breadcrumbs > 0 then
-            breadcrumbs_html = "<div class='breadcrumbs'>" .. table.concat(card.breadcrumbs, " &gt; ") .. "</div><br/>"
+            context_html = context_html .. "<div class='breadcrumbs'>" .. table.concat(card.breadcrumbs, " &gt; ") .. "</div>"
         end
-        card.final_front = breadcrumbs_html .. card.front
+        
+        -- Render parent bullets (Logseq style)
+        if card.parent_bullets and #card.parent_bullets > 0 then
+            local bullets_html = ""
+            for _, bullet in ipairs(card.parent_bullets) do
+                bullets_html = bullets_html .. "<ul class='children-list'><li class='children'>" .. bullet
+            end
+            
+            -- Close the bullet tags around the front text
+            bullets_html = bullets_html .. "<ul class='children-list'><li class='children'>" .. card.front .. "</li></ul>"
+            
+            for i = 1, #card.parent_bullets do
+                bullets_html = bullets_html .. "</li></ul>"
+            end
+            
+            if context_html ~= "" then context_html = context_html .. "<br/>" end
+            context_html = context_html .. bullets_html
+            card.final_front = context_html
+        else
+            if context_html ~= "" then context_html = context_html .. "<br/>" end
+            card.final_front = context_html .. card.front
+        end
         
         -- Tags
         local tags = { "neovim-sync" }

@@ -37,6 +37,7 @@ function M.parse_lines(lines)
     local reading_globals = true
     
     local breadcrumbs = {}
+    local bullet_stack = {}
     
     for line_idx, line in ipairs(lines) do
         -- Lógica de propriedades globais no início do arquivo
@@ -58,7 +59,12 @@ function M.parse_lines(lines)
                 table.remove(breadcrumbs)
             end
             breadcrumbs[level] = header_text
+            -- Reset bullet stack when entering a new header
+            bullet_stack = {}
         end
+        
+        -- Detecta item de lista (bullet) para contexto
+        local indent, bullet_text = line:match("^(%s*)[%-%*]%s(.*)")
         
         -- Detecta o início de um cartão
         local is_bullet_card = line:match("^%s*[%-%*]%s.*#card")
@@ -77,13 +83,20 @@ function M.parse_lines(lines)
                 table.insert(card_breadcrumbs, b)
             end
             
+            -- Copia os parent bullets atuais para o cartão
+            local card_parent_bullets = {}
+            for _, b in ipairs(bullet_stack) do
+                table.insert(card_parent_bullets, b.text)
+            end
+            
             current_card = {
                 raw_header = line,
                 line_number = line_idx,
                 uuid = uuid,
                 body_lines = {},
                 properties = {},
-                breadcrumbs = card_breadcrumbs
+                breadcrumbs = card_breadcrumbs,
+                parent_bullets = card_parent_bullets
             }
         elseif current_card then
             -- Linha dentro de um cartão
@@ -103,6 +116,21 @@ function M.parse_lines(lines)
                 table.insert(cards, current_card)
                 current_card = nil
             end
+        end
+        
+        -- Se for um bullet, mas não for um header, atualiza o stack
+        if bullet_text and not header_level then
+            local indent_len = #indent
+            -- Trunca bullets com indentação maior ou igual
+            while #bullet_stack > 0 and bullet_stack[#bullet_stack].indent >= indent_len do
+                table.remove(bullet_stack)
+            end
+            
+            -- Limpa o texto do bullet se tiver #card (para não acumular)
+            local clean_bullet = bullet_text:gsub("#card", ""):gsub("<!%-%-%s*id:%s*(.-)%s*%-%->", "")
+            clean_bullet = vim.trim(clean_bullet)
+            
+            table.insert(bullet_stack, {indent = indent_len, text = clean_bullet})
         end
     end
     
@@ -141,6 +169,7 @@ function M.parse_lines(lines)
             line_number = raw_card.line_number,
             raw_header = raw_card.raw_header,
             breadcrumbs = raw_card.breadcrumbs,
+            parent_bullets = raw_card.parent_bullets,
             properties = raw_card.properties,
             global_properties = global_properties,
             inline_tags = inline_tags
