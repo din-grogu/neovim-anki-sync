@@ -19,13 +19,48 @@ function M.hash(str)
     return string.format("%x", hash)
 end
 
+-- Extrai propriedades Logseq de uma linha (ex: `deck:: MeuBaralho`)
+local function parse_property(line)
+    local key, value = line:match("^%s*(%w[%w%-]*)::%s*(.+)")
+    if key and value then
+        return key:lower(), vim.trim(value)
+    end
+    return nil, nil
+end
+
 -- Varre as linhas do arquivo e retorna a lista crua de cartões encontrados
 function M.parse_lines(lines)
     local cards = {}
     local current_card = nil
     
+    local global_properties = {}
+    local reading_globals = true
+    
+    local breadcrumbs = {}
+    
     for line_idx, line in ipairs(lines) do
-        -- Detecta o início de um cartão: item de lista ou cabeçalho contendo '#card'
+        -- Lógica de propriedades globais no início do arquivo
+        if reading_globals then
+            local k, v = parse_property(line)
+            if k then
+                global_properties[k] = v
+            elseif vim.trim(line) ~= "" and not line:match("^%s*#") then
+                reading_globals = false
+            end
+        end
+        
+        -- Atualiza Breadcrumbs baseado em cabeçalhos (Markdown)
+        local header_level, header_text = line:match("^%s*(#+)%s+(.*)")
+        if header_level then
+            local level = #header_level
+            -- Trunca níveis mais profundos
+            while #breadcrumbs >= level do
+                table.remove(breadcrumbs)
+            end
+            breadcrumbs[level] = header_text
+        end
+        
+        -- Detecta o início de um cartão
         local is_bullet_card = line:match("^%s*[%-%*]%s.*#card")
         local is_header_card = line:match("^%s*#+%s.*#card")
         
@@ -34,24 +69,37 @@ function M.parse_lines(lines)
                 table.insert(cards, current_card)
             end
             
-            -- Extrai UUID existente se houver
             local uuid = line:match("<!%-%-%s*id:%s*(.-)%s*%-%->")
+            
+            -- Copia os breadcrumbs atuais para o cartão
+            local card_breadcrumbs = {}
+            for _, b in pairs(breadcrumbs) do
+                table.insert(card_breadcrumbs, b)
+            end
             
             current_card = {
                 raw_header = line,
                 line_number = line_idx,
                 uuid = uuid,
-                body_lines = {}
+                body_lines = {},
+                properties = {},
+                breadcrumbs = card_breadcrumbs
             }
         elseif current_card then
-            -- Verifica se a linha pertence ao corpo do cartão atual (indentada ou vazia)
+            -- Linha dentro de um cartão
             local is_indented = line:match("^%s+")
             local is_empty = line:match("^%s*$")
             
             if is_indented or is_empty then
-                table.insert(current_card.body_lines, line)
+                -- Verifica se a linha é uma propriedade
+                local k, v = parse_property(line)
+                if k then
+                    current_card.properties[k] = v
+                else
+                    table.insert(current_card.body_lines, line)
+                end
             else
-                -- Linha sem indentação finaliza o cartão atual
+                -- Linha não identada termina o cartão
                 table.insert(cards, current_card)
                 current_card = nil
             end
@@ -62,17 +110,14 @@ function M.parse_lines(lines)
         table.insert(cards, current_card)
     end
     
-    -- Pós-processamento e cálculo de hashes
+    -- Pós-processamento
     local processed_cards = {}
     for _, raw_card in ipairs(cards) do
         local body = table.concat(raw_card.body_lines, "\n")
         
-        -- Limpa a frente do cartão removendo a tag '#card' e o comentário de ID
         local clean_front = raw_card.raw_header
         clean_front = clean_front:gsub("#card", "")
         clean_front = clean_front:gsub("<!%-%-%s*id:%s*(.-)%s*%-%->", "")
-        
-        -- Remove marcadores de lista ou cabeçalho
         clean_front = clean_front:gsub("^%s*[%-%*]%s*", "")
         clean_front = clean_front:gsub("^%s*#+%s*", "")
         clean_front = vim.trim(clean_front)
@@ -80,20 +125,31 @@ function M.parse_lines(lines)
         local clean_body = vim.trim(body)
         local full_content = clean_front .. "\n" .. clean_body
         
+        -- Extrai tags em linha do cabeçalho
+        local inline_tags = {}
+        for tag in raw_card.raw_header:gmatch("#([%w_-]+)") do
+            if tag ~= "card" then
+                table.insert(inline_tags, tag)
+            end
+        end
+        
         table.insert(processed_cards, {
             uuid = raw_card.uuid,
             front = clean_front,
             back = clean_body,
             hash = M.hash(full_content),
             line_number = raw_card.line_number,
-            raw_header = raw_card.raw_header
+            raw_header = raw_card.raw_header,
+            breadcrumbs = raw_card.breadcrumbs,
+            properties = raw_card.properties,
+            global_properties = global_properties,
+            inline_tags = inline_tags
         })
     end
     
     return processed_cards
 end
 
--- Carrega o arquivo, extrai os cartões, gera e injeta UUIDs em falta diretamente no arquivo
 function M.parse_file(filepath)
     local f = io.open(filepath, "r")
     if not f then
@@ -109,20 +165,17 @@ function M.parse_file(filepath)
     local cards = M.parse_lines(lines)
     local needs_write = false
     
-    -- Injeta UUIDs nos cartões que não possuem
     for _, card in ipairs(cards) do
         if not card.uuid or card.uuid == "" then
             local new_uuid = M.generate_uuid()
             card.uuid = new_uuid
             
-            -- Adiciona o comentário do UUID no final da linha do cabeçalho original
             local orig_line = lines[card.line_number]
             lines[card.line_number] = orig_line .. " <!-- id: " .. new_uuid .. " -->"
             needs_write = true
         end
     end
     
-    -- Grava as alterações de volta no arquivo
     if needs_write then
         local out = io.open(filepath, "w")
         if out then

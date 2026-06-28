@@ -269,7 +269,8 @@ function M.sync(filepath)
                     cardIds = note.cards,
                     hash = hash,
                     path = path,
-                    deckName = current_deck
+                    deckName = current_deck,
+                    tags = note.tags or {}
                 }
             end
         end
@@ -281,9 +282,43 @@ function M.sync(filepath)
     local to_keep = {}
     local local_uuids = {}
 
+    local default_deck_name = deck_name
     for _, card in ipairs(local_cards) do
         local_uuids[card.uuid] = true
         local anki_note = existing_notes_by_uuid[card.uuid]
+        
+        -- Breadcrumbs
+        local breadcrumbs_html = ""
+        if card.breadcrumbs and #card.breadcrumbs > 0 then
+            breadcrumbs_html = "<div class='breadcrumbs'>" .. table.concat(card.breadcrumbs, " &gt; ") .. "</div><br/>"
+        end
+        card.final_front = breadcrumbs_html .. card.front
+        
+        -- Tags
+        local tags = { "neovim-sync" }
+        local tag_set = { ["neovim-sync"] = true }
+        local function add_tag(t)
+            if t and not tag_set[t] then
+                tag_set[t] = true
+                table.insert(tags, t)
+            end
+        end
+        for _, t in ipairs(card.inline_tags or {}) do add_tag(t) end
+        local function parse_tags(tag_str)
+            if not tag_str then return end
+            for t in tag_str:gmatch("[^,%s]+") do add_tag(t) end
+        end
+        parse_tags(card.properties.tags)
+        parse_tags(card.global_properties.tags)
+        card.tags = tags
+        
+        -- Deck override
+        local explicit_deck = card.properties.deck or card.global_properties.deck
+        if explicit_deck and explicit_deck ~= "" then
+            card.target_deck = explicit_deck:gsub("/", "::")
+        else
+            card.target_deck = default_deck_name
+        end
 
         if not anki_note then
             table.insert(to_create, card)
@@ -291,7 +326,7 @@ function M.sync(filepath)
             card.noteId = anki_note.noteId
             card.cardIds = anki_note.cardIds
 
-            local deck_changed = anki_note.deckName ~= deck_name
+            local deck_changed = anki_note.deckName ~= card.target_deck
             local path_changed = anki_note.path ~= relative_file
             local hash_changed = anki_note.hash ~= card.hash
 
@@ -321,16 +356,16 @@ function M.sync(filepath)
         local new_notes = {}
         for _, card in ipairs(to_create) do
             table.insert(new_notes, {
-                deckName = deck_name,
+                deckName = card.target_deck,
                 modelName = M.config.model,
                 fields = {
-                    Front = card.front,
+                    Front = card.final_front,
                     Back = card.back,
                     UUID = card.uuid,
                     Config = string.format("hash:%s path:%s", card.hash, hex_path)
                 },
                 options = { allowDuplicate = true },
-                tags = { "neovim-sync" }
+                tags = card.tags
             })
         end
         local create_res, create_err = client.add_notes(new_notes)
@@ -347,7 +382,7 @@ function M.sync(filepath)
             if card.deck_changed and card.cardIds and #card.cardIds > 0 then
                 local ok, move_err = client.request("changeDeck", {
                     cards = card.cardIds,
-                    deck = deck_name
+                    deck = card.target_deck
                 })
                 if not ok then
                     vim.notify("Failed to move note " .. tostring(card.noteId) .. " to deck " .. deck_name .. ": " .. tostring(move_err), vim.log.levels.ERROR, { title = "Anki Sync" })
@@ -359,7 +394,7 @@ function M.sync(filepath)
             local ok, upd_err = client.update_note_fields({
                 id = card.noteId,
                 fields = {
-                    Front = card.front,
+                    Front = card.final_front,
                     Back = card.back,
                     UUID = card.uuid,
                     Config = string.format("hash:%s path:%s", card.hash, hex_path)
@@ -368,6 +403,10 @@ function M.sync(filepath)
             if not ok then
                 vim.notify("Failed to update note " .. tostring(card.noteId) .. ": " .. tostring(upd_err), vim.log.levels.ERROR, { title = "Anki Sync" })
                 return false
+            end
+            
+            if card.tags and #card.tags > 0 then
+                client.request("addTags", { notes = {card.noteId}, tags = table.concat(card.tags, " ") })
             end
         end
     end

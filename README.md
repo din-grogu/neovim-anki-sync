@@ -21,6 +21,7 @@ Having migrated from Logseq to Neovim, the main goal of this fork was to port th
 
 * **100% Pure Lua:** Zero external dependencies (no Node.js, Python, or NPM required). It only uses `curl` in the background.
 * **Stateless Cache:** Content hashes are stored directly within Anki (in the card's `Config` field). No local databases or JSON cache files to manage or sync across multiple machines.
+* **Logseq Parity:** Full support for extracting Logseq-style properties (`deck::`, `tags::`), inline tags (`#tag`), and automatic hierarchical breadcrumbs context from your markdown headings.
 * **In-place UUID Injection:** Automatically generates and appends unique IDs (`<!-- id: <uuid> -->`) to your notes when syncing new cards, allowing you to move cards around without losing scheduling history.
 * **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard` note type (with fields `Front`, `Back`, `UUID`, and `Config`) in Anki if they do not exist.
 * **Asynchronous Execution:** Runs in the background using Neovim's job APIs, ensuring your editor UI never freezes during sync.
@@ -64,6 +65,37 @@ The plugin automatically maps your notes' folder hierarchy to Anki sub-decks usi
   If the file is directly at the root (no subdirectory) or outside the detected project directory, it falls back to the configured `deck` option (defaulting to `"Default"`).
 * **Custom Root:**
   If you want to manually specify your notes root directory instead of using git/CWD detection, you can set the `notes_dir` option in the `setup` config.
+
+### 🏷️ Properties & Metadata
+
+You can override the deck or add tags to your cards using Logseq-style properties or Markdown frontmatter.
+
+**Global properties (Frontmatter)**:
+Properties defined at the top of the file apply to all cards inside it.
+```markdown
+deck:: GlobalDeck
+tags:: tag1, tag2
+```
+
+**Card properties**:
+Properties indented right below a card apply only to that specific card.
+```markdown
+- What is the capital of France? #card
+  deck:: CustomDeck
+  tags:: geography, cities
+  The capital is Paris.
+```
+
+**Inline Tags**:
+You can also specify tags directly in the card title using the `#tag` syntax.
+```markdown
+- What is Neovim? #card #programming #tools
+  A Vim-based text editor built for extensibility using Lua.
+```
+
+### 🍞 Breadcrumbs Context
+
+The plugin automatically tracks the hierarchy of Markdown headings (`#`, `##`, `###`) leading up to a card. This context is injected at the top of the card's Front side in Anki, ensuring you always know the context of the flashcard when reviewing!
 
 ---
 
