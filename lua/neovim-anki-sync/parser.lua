@@ -216,7 +216,7 @@ function M.parse_lines(lines)
         end
         
         -- Multiline card logic: Combines parent and children in the front field
-        local final_front = context_html .. "<ul><li>" .. clean_front .. "\n" .. clean_body .. "\n</li></ul>"
+        local final_front = clean_front .. "\n" .. clean_body
         
         -- O verso fica vazio no formato multiline, já que o próprio cloze revela a resposta
         local final_back = ""
