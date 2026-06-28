@@ -89,7 +89,9 @@ function M.parse_lines(lines)
             -- Copia os parent bullets atuais para o cartão
             local card_parent_bullets = {}
             for _, b in ipairs(bullet_stack) do
-                table.insert(card_parent_bullets, b.text)
+                if b.indent < card_indent_len then
+                    table.insert(card_parent_bullets, b.text)
+                end
             end
             
             current_card = {
