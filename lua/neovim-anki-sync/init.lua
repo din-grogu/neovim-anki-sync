@@ -74,14 +74,22 @@ local function get_notes_dir_and_relative(filepath)
     return notes_dir, relative_dir, relative_file
 end
 
---- Resolve the Anki deck name from relative_dir.
-local function resolve_deck_name(relative_dir)
+--- Resolve the Anki deck name from relative_dir and filename.
+local function resolve_deck_name(relative_dir, filename)
+    local base_deck = ""
     if relative_dir == "" then
-        return M.config.deck
+        base_deck = M.config.deck
+    else
+        base_deck = (relative_dir:gsub("/", "::"))
     end
-    return (relative_dir:gsub("/", "::"))
+    
+    local name_without_ext = vim.fn.fnamemodify(filename, ":r")
+    if base_deck == "" then
+        return name_without_ext
+    else
+        return base_deck .. "::" .. name_without_ext
+    end
 end
-
 -- Ensure the custom note model exists in Anki
 local function ensure_anki_model()
     local models, err = client.request("modelNames")
@@ -149,7 +157,8 @@ function M.sync(filepath)
 
     -- 2. Resolve paths and deck name
     local notes_dir, relative_dir, relative_file = get_notes_dir_and_relative(filepath)
-    local deck_name = resolve_deck_name(relative_dir)
+    local filename = vim.fn.fnamemodify(filepath, ":t")
+    local deck_name = resolve_deck_name(relative_dir, filename)
 
     -- 3. Ensure deck exists
     local deck_ok, deck_err = ensure_deck(deck_name)
