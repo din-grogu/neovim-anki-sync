@@ -6,7 +6,7 @@ local M = {}
 -- Default configuration
 M.config = {
     deck = "Default",            -- Fallback deck when file is outside notes_dir
-    model = "NeovimAnkiCard-Cloze",    -- Note type name in Anki (changed to support multiline clozes)
+    model = "NeovimAnkiCard-Cloze-v2",    -- Note type name in Anki (changed to support v2 layout with breadcrumbs)
     anki_url = "http://127.0.0.1:8765",
     notes_dir = nil              -- Root directory for hierarchical deck mapping (optional)
 }
@@ -108,14 +108,70 @@ local function ensure_anki_model()
     if not has_model then
         local ok, create_err = client.request("createModel", {
             modelName = M.config.model,
-            inOrderFields = { "Front", "Back", "UUID", "Config" },
+            inOrderFields = { "Text", "Back", "Breadcrumb", "UUID", "Config" },
             isCloze = true,
-            css = ".card {\n font-family: arial;\n font-size: 20px;\n text-align: left;\n color: black;\n background-color: white;\n}\n",
+            css = [[
+.card {
+ font-family: arial;
+ font-size: 20px;
+ text-align: left;
+ color: black;
+ background-color: white;
+}
+.bubble {
+ font-family: arial;
+ font-size: 12px;
+ color: rgb(65, 65, 65);
+ background-color: rgb(226, 236, 240);
+ border-radius: 6px;
+ padding: 2px 6px;
+ margin-bottom: 4px;
+ display: inline-block;
+}
+.bubble:empty {
+ display: none;
+}
+.text {
+ font-family: arial;
+ font-size: 16px;
+ color: black;
+ margin-top: 10px;
+}
+.cloze {
+ font-weight: bold;
+ color: blue;
+}
+body.nightMode {
+ background-color: #2c2c2c;
+ color: #fcfcfc;
+}
+body.nightMode .card {
+ color: #fcfcfc;
+ background-color: #2c2c2c;
+}
+body.nightMode .text {
+ color: #bfbfbf;
+}
+body.nightMode .cloze {
+ color: lightblue;
+}
+body.nightMode .bubble {
+ color: #bfbfbf;
+ background-color: #4d4d4d;
+}
+]],
             cardTemplates = {
                 {
                     Name = "Card 1",
-                    Front = "{{cloze:Front}}",
-                    Back = "{{cloze:Front}}\n\n<hr id=answer>\n\n{{Back}}"
+                    Front = [[{{#Breadcrumb}}<div class="bubble">{{Breadcrumb}}</div><br/>{{/Breadcrumb}}
+<div class="text">{{cloze:Text}}</div>]],
+                    Back = [[{{#Breadcrumb}}<div class="bubble">{{Breadcrumb}}</div><br/>{{/Breadcrumb}}
+<div class="text">{{cloze:Text}}</div>
+
+{{#Back}}
+<hr id="answer">
+<div class="text">{{Back}}</div>
+{{/Back}}]]
                 }
             }
         })
@@ -298,8 +354,6 @@ function M.sync(filepath)
         local anki_note = existing_notes_by_uuid[card.uuid]
         
         -- Context (Breadcrumbs & Parent Bullets)
-        local context_html = ""
-        
         -- Build breadcrumbs from relative directory and filename, then append card headers
         local full_breadcrumbs = {}
         if relative_dir ~= "" then
@@ -315,14 +369,15 @@ function M.sync(filepath)
             end
         end
         
-        -- Render headers
+        local breadcrumbs_str = ""
         if #full_breadcrumbs > 0 then
-            context_html = context_html .. "<div class='breadcrumbs'>" .. table.concat(full_breadcrumbs, " &gt; ") .. "</div>"
+            breadcrumbs_str = table.concat(full_breadcrumbs, " &gt; ")
         end
+        card.breadcrumbs_html = breadcrumbs_str
         
         -- Render parent bullets (Markdown style hierarchy)
+        local bullets_html = ""
         if card.parent_bullets and #card.parent_bullets > 0 then
-            local bullets_html = ""
             for _, bullet in ipairs(card.parent_bullets) do
                 bullets_html = bullets_html .. "<ul><li>" .. bullet
             end
@@ -333,14 +388,10 @@ function M.sync(filepath)
             for i = 1, #card.parent_bullets do
                 bullets_html = bullets_html .. "</li></ul>"
             end
-            
-            if context_html ~= "" then context_html = context_html .. "<br/>" end
-            context_html = context_html .. bullets_html
-            card.final_front = context_html
         else
-            if context_html ~= "" then context_html = context_html .. "<br/>" end
-            card.final_front = context_html .. "<ul><li>" .. card.front .. "</li></ul>"
+            bullets_html = "<ul><li>" .. card.front .. "</li></ul>"
         end
+        card.final_front = bullets_html
         
         -- Tags
         local tags = { "neovim-sync" }
@@ -407,8 +458,9 @@ function M.sync(filepath)
                 deckName = card.target_deck,
                 modelName = M.config.model,
                 fields = {
-                    Front = card.final_front,
+                    Text = card.final_front,
                     Back = card.back,
+                    Breadcrumb = card.breadcrumbs_html,
                     UUID = card.uuid,
                     Config = string.format("hash:%s path:%s", card.hash, hex_path)
                 },
@@ -420,7 +472,7 @@ function M.sync(filepath)
         if not create_res then
             local hint = ""
             if tostring(create_err):match("cannot create note for unknown reason") then
-                hint = "\n\nHINT: This error usually means you are trying to sync Cloze cards (or multiline cards which use clozes under the hood) to a Basic note type (like '" .. M.config.model .. "').\nTo fix this:\n1. Restart Neovim to load the new default model 'NeovimAnkiCard-Cloze'.\n2. If you overrode the model name in your config, update it or remove the override.\n3. Alternatively, manually change the Note Type of '" .. M.config.model .. "' to 'Cloze' inside Anki (Tools > Manage Note Types > select model > Change Note Type > select Cloze)."
+                hint = "\n\nHINT: This error usually means you are trying to sync Cloze cards (or multiline cards which use clozes under the hood) to a Basic note type (like '" .. M.config.model .. "').\nTo fix this:\n1. Restart Neovim to load the new default model 'NeovimAnkiCard-Cloze-v2'.\n2. If you overrode the model name in your config, update it or remove the override.\n3. Alternatively, manually change the Note Type of '" .. M.config.model .. "' to 'Cloze' inside Anki (Tools > Manage Note Types > select model > Change Note Type > select Cloze)."
             end
             vim.notify("Failed to create Anki notes: " .. tostring(create_err) .. hint, vim.log.levels.ERROR, { title = "Anki Sync" })
             return false
@@ -446,8 +498,9 @@ function M.sync(filepath)
             local ok, upd_err = client.update_note_fields({
                 id = card.noteId,
                 fields = {
-                    Front = card.final_front,
+                    Text = card.final_front,
                     Back = card.back,
+                    Breadcrumb = card.breadcrumbs_html,
                     UUID = card.uuid,
                     Config = string.format("hash:%s path:%s", card.hash, hex_path)
                 }
