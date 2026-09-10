@@ -1,90 +1,46 @@
 # Project Structure
 
-This is a Logseq plugin for one-way syncing flashcards to Anki with advanced features like image occlusion, cloze cards and block/page reference rendering.
+This is a native, stateless Neovim Lua plugin (`neovim-anki-sync`) for synchronizing flashcards from Markdown and Org files directly to Anki via AnkiConnect.
 
-- **Entry Point:** `src/index.ts` initializes the plugin, registers UI commands, and sets up event listeners
-- **Output:** Build artifacts go to `dist/` directory
-- **Dependencies:** Defined in `package.json`
-- **Main Modules:**
-  - `src/logseq/` - Logseq API interaction with caching layer (LogseqProxy)
-  - `src/anki-connect/` - Anki Connect API integration
-  - `src/sync/` - Core syncing logic with hash-based change detection
-  - `src/anki-notes/` - Generates Anki notes from Logseq blocks
-  - `src/ui/` - React-based UI components (modals, pages, settings)
-  - `src/utils/` - Shared utility functions
-  - `src/addons/` - Plugin addon system
-  - `src/anki-template/` - Anki card templates
+- **Entry Point (Plugin Command):** `plugin/neovim-anki-sync.lua` registers the user command `:AnkiSync [filepath]`
+- **Core Lua Modules:** `lua/neovim-anki-sync/`
+  - `init.lua` - Main plugin setup, deck resolution, sync orchestration, Anki note model creation, change detection, and sync execution
+  - `client.lua` - AnkiConnect HTTP client wrapping `curl` with `vim.system` or `vim.fn.system` and JSON encoding/decoding
+  - `parser.lua` - Markdown/Org parser: extracts `#card` bullets/headers, handles properties (`deck::`, `tags::`), converts inline markdown to HTML while preserving clozes, handles code blocks, computes DJB2 hashes, and injects UUIDs (`<!-- id: <uuid> -->`)
+- **Tests:** `tests/run_tests.lua` - Headless Neovim test suite
 
 ## Tech Stack
 
-- **Language:** TypeScript
-- **Build:** Vite with custom plugins for static file inlining and JS bundling
-- **UI Framework:** React 17 with focus-trap-react
-- **Testing:** Vitest with jsdom environment
-- **Key Libraries:** @logseq/libs, mldoc (logseq markdown parsing), cheerio (HTML manipulation)
+- **Language:** Lua (Neovim Lua runtime / LuaJIT)
+- **External Dependencies:** `curl` (no Node.js, Python, or npm required)
+- **Integration Target:** AnkiConnect (default URL: `http://127.0.0.1:8765`)
 
 ## Architecture
 
-**LogseqProxy Cache Layer:** All Logseq API calls go through `LogseqProxy` which provides memoized, synchronization-safe wrappers around @logseq/libs using p-memoize. Cache clears after sync via 'syncLogseqToAnkiComplete' event. For fresh, non-cached data with properties attached, use `LogseqPropertiesHelper` class.
+**Pure Lua & Stateless:**
+- Content hashes are stored directly in Anki notes (in the `Config` field as `hash:<hex> path:<hex>`).
+- No local database or external state file is needed.
 
-**Property Access (Logseq 0.2.3+):** Properties are now namespaced (e.g., `:user.property/deck-bavZ5684`). The `LogseqPropertiesHelper` class automatically fetches properties, strips prefixes, and filters system properties, maintaining backward compatibility. Use this helper when:
-- Bypassing cache for fresh data (e.g., UI interactions, image occlusion editor)
-- Direct API calls are needed outside LogseqProxy
-- LogseqProxy automatically uses these internally for cached access
+**Hierarchical Decks & Breadcrumbs:**
+- Automatically maps folder hierarchy to Anki decks using `::` separator relative to `notes_dir` or detected project root (`.git`, `.obsidian`, `.logseq`, `.root`).
+- Breadcrumbs are generated from file paths and Markdown heading hierarchies.
 
-**Dependency Hash Cache:** `BlockAndPageHashCache.ts` maintains a dependency graph tracking block references, page embeds, and transitive dependencies. Each block's hash includes all dependency hashes plus metadata (page updatedAt, content length, parent/left ids). When a block changes, all dependent blocks' hashes automatically invalidate. Cache clears after sync via 'syncLogseqToAnkiComplete' event.
-
-**Syncing System:** `syncLogseqToAnki.ts` uses `NoteHashCalculator` to compute note hashes from dependency hashes + plugin settings + Anki fields. Only notes with changed hashes trigger re-rendering and Anki updates.
-
-**HTML Conversion:** `LogseqToHtmlConverter.ts` handles rendering Logseq markdown/org-mode to HTML, resolving block references, page embeds, PDF annotations, and other Logseq-specific syntax for Anki display.
-
-**Settings:** Defined in `settings.ts` using `SettingSchemaDesc`. Access via `LogseqProxy.Settings.getPluginSettings()`, never directly through `logseq.settings`.
-
-**UI Components:** React-based modals and pages live in `src/ui/`. Key pages include OcclusionEditor (fabric.js canvas for image occlusion).
+**Buffer-Safe UUID Injection:**
+- Injects `<!-- id: <uuid> -->` directly into active Neovim buffers using `nvim_buf_set_lines` via `parse_buffer` so unsaved buffer modifications are preserved.
+- Falls back to atomic disk writes in `parse_file` when the file is not currently loaded in a buffer.
 
 ## Testing
 
-**Test Location:** `tests/` directory with subdirectories matching src structure
-
 **Running Tests:**
-- `pnpm test --run` - Run all tests
-- `pnpm test LogseqToHtmlConverter.test.ts --run` - Run specific test file
-- `pnpm test -t "test case name" --run` - Run specific test case
-
-**Testing Approach:**
-- Vitest with jsdom environment
-- Uses `logseq-proxy` package to proxy @logseq/libs calls to actual HTTP requests against running Logseq instance
-- `tests/setup.ts` configures proxy to http://127.0.0.1:12315 - tests fail with fetch error if Logseq API server isn't running
+- Run the headless test suite:
+  ```bash
+  nvim --headless -u NONE -l tests/run_tests.lua
+  ```
 
 ## Best Practices
 
-- **Code Organization:** Keep related functionality within appropriate module directories
-- **Logseq API:** Always use LogseqProxy instead of direct @logseq/libs calls for caching and synchronization safety. However, do not use this inside LogseqPropertiesHelper.ts.
-- **Property Access:** Use `LogseqPropertiesHelper` for block/page property access:
-  - For cached access during sync: Use `LogseqProxy.Editor.getBlock()` / `getPage()` (properties included automatically)
-  - For fresh, non-cached data: Use `LogseqPropertiesHelper.getBlock()` / `getPage()` from `src/logseq/logseqPropertiesHelper.ts`
-  - Never call `logseq.Editor.getBlock()` / `getPage()` directly - properties won't be fetched/stripped properly
-  - For calls from UI, always use fresh, non-cached methods. For calls made during syncing, use cached methods. 
-- **Tag Access:** Use `block.properties.tags` to access logseq tags array from a logseq block
-- **HTML Conversion:** Use `LogseqToHtmlConverterProxy` for sync operations (cached), `LogseqToHtmlConverter` for UI operations (non-cached). Same pattern applies to `LogseqContentPreprocessorProxy` vs `LogseqContentPreprocessor`. Proxy classes extend base classes, override protected methods to use LogseqProxy, and add pMemoize caching that clears on 'syncLogseqToAnkiComplete' event
-- **Parent Window Access:** Always use WindowParentBridge instead of direct `window.parent` access for iframe communication. WindowParentBridge provides type-safe, testable access to parent window objects (Logseq API, AnkiConnect, Fabric.js, DOM elements, etc.)
-- **Settings Access:** Use `LogseqProxy.Settings.getPluginSettings()` instead of `logseq.settings`
-- **React Imports:** Import React/ReactDOM from `ui/React.ts` and `ui/ReactDOM.ts`, not directly from npm packages
-- **Anki Operations:** Use LazyAnkiNoteManager instead of direct AnkiConnect calls during sync.
-- **UI Development:** Follow existing modal/page patterns from `src/ui/` directory
-- **Build & Dev:** Use `pnpm dev` for hot reload development, `pnpm build` for production (pnpm is enforced via preinstall)
-- **Documentation:** When implementing new features or making significant changes, remember to update the documentation in the `docusaurus/` directory to keep it in sync with the codebase.
-- **Logging:** Use the centralized logger from `src/logger` with appropriate `LoggerCategory` for consistent logging. Never use `console.log()` directly.
-
-# Development Guidelines
-You are an elite software engineering assistant. Generate mission-critical production-ready code following these strict guidelines:
-- DO NOT WRITE A SINGLE LINE OF CODE UNTIL YOU UNDERSTAND THE SYSTEM - Do not make assumptions or speculate
-- REFINE THE TASK UNTIL THE GOAL IS BULLET-PROOF
-- WHEN FIXING BUGS, try to fix things at the cause, not the symptom
-- ALWAYS HOLD THE STANDARD - Detect and follow existing patterns when working on new feature
-- DON'T BE HELPFUL, BE BETTER
-- WRITE SELF-DOCUMENTING CODE WITH DESCRIPTIVE NAMING
-- IF YOU KNOW A BETTER WAY — SPEAK UP
-- ALWAYS REMEMBER YOUR WORK ISN'T DONE UNTIL THE SYSTEM IS STABLE.
-- REMEMBER TO RUN TESTS and TYPE CHECK (`npx tsc --noEmit`) AFTER WORK IS DONE.
-- AT END, ALWAYS RUN `npm run check` and `npm run check:fix` to run bromine linter and formater.
+- **Zero External Runtimes:** Keep the plugin 100% pure Lua; rely only on Neovim built-in APIs and `curl`.
+- **Buffer Safety:** When modifying files to inject UUIDs, always check if the buffer is currently loaded and use the Neovim buffer API (`nvim_buf_set_lines`).
+- **Anki Cloze Integrity:** Never break Anki cloze syntax (`{{c1::...}}`) during Markdown-to-HTML conversion.
+- **Robust Network Calls:** Use `-sS` and appropriate timeouts with `curl` in `client.lua` to ensure network errors are properly captured and reported.
+- **Test Coverage:** Whenever parser or sync logic is modified, add or update corresponding test cases in `tests/run_tests.lua`.

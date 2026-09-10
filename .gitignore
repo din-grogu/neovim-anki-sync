@@ -1,32 +1,15 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
+# Neovim / Vim swap and backup files
+*.swp
+*.swo
+*.swn
+*~
+.netrwhist
 
-# Dependency directories
-node_modules/*
-.vite_cache/*
-.parcel-cache/
+# OS files
+.DS_Store
+Thumbs.db
 
-# Dist folder
-dist/
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Docusaurus
-docusaurus/.docusaurus/
-docusaurus/build/
-docusaurus/node_modules/
-
-# IDE
-.kiro/*
-.idea/*
-.vscode/*
+# IDEs
+.idea/
+.vscode/
+.kiro/

@@ -518,7 +518,7 @@ function M.sync(filepath)
                     deck = card.target_deck
                 })
                 if not ok then
-                    vim.notify("Failed to move note " .. tostring(card.noteId) .. " to deck " .. deck_name .. ": " .. tostring(move_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+                    vim.notify("Failed to move note " .. tostring(card.noteId) .. " to deck " .. card.target_deck .. ": " .. tostring(move_err), vim.log.levels.ERROR, { title = "Anki Sync" })
                     return false
                 end
             end

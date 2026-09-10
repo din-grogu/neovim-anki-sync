@@ -16,9 +16,10 @@ function M.request(action, params)
     -- Executa curl de forma segura passando os argumentos em uma lista (evita injeção de shell)
     local cmd = {
         "curl",
-        "-s",
+        "-sS",
         "--max-time", "20",
         "--connect-timeout", "5",
+        "-H", "Content-Type: application/json",
         "-X", "POST",
         "-d", json_payload,
         M.anki_url
