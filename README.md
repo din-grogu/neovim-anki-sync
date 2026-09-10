@@ -23,7 +23,8 @@ Having migrated from Logseq to Neovim, the main goal of this fork was to port th
 * **Stateless Cache:** Content hashes are stored directly within Anki (in the card's `Config` field). No local databases or JSON cache files to manage or sync across multiple machines.
 * **Logseq Parity:** Full support for extracting Logseq-style properties (`deck::`, `tags::`), inline tags (`#tag`), and automatic hierarchical breadcrumbs context from your markdown headings.
 * **In-place UUID Injection:** Automatically generates and appends unique IDs (`<!-- id: <uuid> -->`) to your notes when syncing new cards, allowing you to move cards around without losing scheduling history.
-* **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard` note type (with fields `Front`, `Back`, `UUID`, and `Config`) in Anki if they do not exist.
+* **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard-Cloze-v2` note type (with fields `Text`, `Back`, `Breadcrumb`, `UUID`, and `Config`, styled with CSS mimicking Logseq bubble breadcrumbs and night mode) in Anki if they do not exist.
+* **Inline Markdown & Code Blocks:** Supports inline Markdown (`**bold**`, `*italic*`, `==highlight==`, `` `code` ``, `[text](url)`) and fenced code blocks (``` / ~~~), safely preserving Anki clozes and ignoring `#card` inside code.
 * **Asynchronous Execution:** Runs in the background using Neovim's job APIs, ensuring your editor UI never freezes during sync.
 
 ---
@@ -101,30 +102,43 @@ You can also specify tags directly in the card title using the `#tag` syntax.
   A Vim-based text editor built for extensibility using Lua.
 ```
 
-### 🍞 Breadcrumbs Context
+### 🍞 Breadcrumbs & Bullet Hierarchy Context
 
-The plugin automatically tracks the hierarchy of Markdown headings (`#`, `##`, `###`) leading up to a card. This context is injected at the top of the card's Front side in Anki, ensuring you always know the context of the flashcard when reviewing!
+The plugin automatically generates hierarchical breadcrumbs combining:
+1. Directory path relative to `notes_dir`
+2. Filename (without extension)
+3. Markdown headings (`#`, `##`, `###`) leading up to the card
+4. Parent bullet hierarchy enclosing the card
+
+This context is styled into a neat pill badge (`<div class="bubble">...</div>`) at the top of the card in Anki, ensuring you always know the exact context when reviewing!
 
 ---
 
 ## ✍️ Card Syntax
 
-Write your flashcards as list items (bullets or headers) containing the tag `#card`. The text on the header is the Front, and any indented lines under it become the Back:
+### Multiline Cards & Child Bullets
+Cards are written as list items (bullets or headers) containing `#card`. Any indented child bullets under `#card` are automatically wrapped as an Anki cloze deletion (`{{c1::...}}`) maintaining full Markdown bullet hierarchy in HTML:
 
 ```markdown
 # My Study Notes
 
-- What is the capital of France? #card
-  The capital is Paris.
-
 - What is Neovim? #card
-  A Vim-based text editor built for extensibility using Lua.
+  - A Vim-based modal text editor.
+  - Built for extensibility using Lua.
 ```
 
-### Cloze Deletion Support
-You can also use standard Anki Cloze syntax:
+### Manual Cloze Deletions
+You can also specify explicit Anki Cloze syntax anywhere in the card:
 ```markdown
-- The Sun is a {{c1::star}} at the center of the Solar System. #card
+- The Sun is a {{c1::star}} at the center of the {{c2::Solar System}}. #card
+```
+
+### Inline Markdown Formatting
+Use standard Markdown syntax inside your cards:
+```markdown
+- Important concepts in Law: #card
+  - **Strict liability**: requires no *mens rea*.
+  - Use ==highlight== for key terms and `code` for commands.
 ```
 
 ---
@@ -151,7 +165,8 @@ Since this is a lightweight Lua port focused on speed and simplicity, it has som
 
 * [ ] **Local Media Synchronization:** Detect and upload local image/audio assets to Anki using `storeMediaFile` via curl.
 * [x] **Markdown to HTML Converter:** Native converter supporting bold, italics, highlights (`==`), inline code (` `), links, and fenced code blocks (` ``` `).
-* [ ] **Multiple Card Styles:** Add support for Multiline, Swift Arrow, and custom card templates.
+* [x] **Multiline Cloze Cards:** Automatic conversion of indented bullet trees into cloze cards preserving HTML list hierarchy.
+* [ ] **Additional Card Styles:** Support for Swift Arrow (`->`) and customizable note templates.
 * [ ] **Interactive Sync Window:** Provide a visual diff/sync window (using `nui.nvim` or `Telescope`) to review changes before pushing to Anki.
 
 ---
@@ -161,7 +176,7 @@ Since this is a lightweight Lua port focused on speed and simplicity, it has som
 You can run the headless test suite to verify the parser, UUID injector, path resolution, and synchronization engine:
 
 ```bash
-nvim --headless -l tests/run_tests.lua
+nvim --headless -u NONE -l tests/run_tests.lua
 ```
 
 ---
