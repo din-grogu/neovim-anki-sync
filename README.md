@@ -1,6 +1,6 @@
 # Neovim Anki Sync (`neovim-anki-sync`)
 
-A native, ultra-fast, and **stateless** Lua plugin for Neovim that parses flashcards from Markdown/Org files and synchronizes them directly to Anki via AnkiConnect.
+A native, ultra-fast, and **stateless** Lua plugin for Neovim that parses flashcards from Markdown notes (including outliners) and synchronizes them directly to Anki via AnkiConnect.
 
 <p align="center">
   <img src="https://img.shields.io/github/stars/din-grogu/neovim-anki-sync.svg?logo=GitHub&style=flat" alt="GitHub Stars" />
@@ -21,7 +21,7 @@ Having migrated from Logseq to Neovim, the main goal of this fork was to port th
 
 * **100% Pure Lua:** Zero external dependencies (no Node.js, Python, or NPM required). It only uses `curl` in the background.
 * **Stateless Cache:** Content hashes are stored directly within Anki (in the card's `Config` field). No local databases or JSON cache files to manage or sync across multiple machines.
-* **Logseq Parity:** Full support for extracting Logseq-style properties (`deck::`, `tags::`), inline tags (`#tag`), and automatic hierarchical breadcrumbs context from your markdown headings.
+* **Outliner & Hierarchy Support:** Full support for indented bullet trees, markdown headings (`#`, `##`), Logseq-style properties (`deck::`, `tags::`), inline tags (`#tag`), and automatic hierarchical breadcrumbs/parent context.
 * **In-place UUID Injection:** Automatically generates and appends unique IDs (`<!-- id: <uuid> -->`) to your notes when syncing new cards, allowing you to move cards around without losing scheduling history.
 * **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard-Cloze-v2` note type (with fields `Text`, `Back`, `Breadcrumb`, `UUID`, and `Config`, styled with CSS mimicking Logseq bubble breadcrumbs and night mode) in Anki if they do not exist.
 * **Inline Markdown & Code Blocks:** Supports inline Markdown (`**bold**`, `*italic*`, `==highlight==`, `` `code` ``, `[text](url)`) and fenced code blocks (``` / ~~~), safely preserving Anki clozes and ignoring `#card` inside code.
@@ -38,7 +38,7 @@ You can install `neovim-anki-sync` using your favorite plugin manager.
 ```lua
 {
     "din-grogu/neovim-anki-sync",
-    ft = { "markdown", "org" },
+    ft = { "markdown" },
     config = function()
         require("neovim-anki-sync").setup({
             deck = "Default",                   -- Fallback deck name in Anki (if file is at root or relative_dir is empty)
@@ -148,7 +148,7 @@ Use standard Markdown syntax inside your cards:
 The plugin registers a global user command with path auto-completion:
 
 * `:AnkiSync` - Synchronizes the active buffer. Any newly detected cards will have their UUID comments appended in-place automatically.
-* `:AnkiSync <path_to_file>` - Synchronizes a specific Markdown/Org file.
+* `:AnkiSync <path_to_file>` - Synchronizes a specific Markdown file.
 
 ---
 
