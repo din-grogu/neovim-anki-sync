@@ -40,10 +40,13 @@ You can install `neovim-anki-sync` using your favorite plugin manager.
     ft = { "markdown", "org" },
     config = function()
         require("neovim-anki-sync").setup({
-            deck = "Default",                   -- Fallback deck name in Anki (if file is at root or outside notes_dir)
-            model = "NeovimAnkiCard",           -- Target note type name (auto-created if missing)
+            deck = "Default",                   -- Fallback deck name in Anki (if file is at root or relative_dir is empty)
+            deck_prefix = "",                   -- Optional prefix prepended to all resolved decks (e.g. "Concursos")
+            include_filename_in_deck = true,    -- Whether to append the filename (without ext) as the innermost sub-deck
+            model = "NeovimAnkiCard-Cloze-v2",  -- Target note type name (auto-created if missing)
             anki_url = "http://127.0.0.1:8765", -- AnkiConnect URL
-            notes_dir = nil                     -- Root directory of your notes (optional). If nil, auto-detects Git root/CWD.
+            notes_dir = nil,                    -- Root directory of your notes (optional). Accepts "~/path". If nil, auto-detects root.
+            root_markers = { ".git", ".obsidian", ".logseq", ".root" }, -- Heuristic markers to auto-detect notes root
         })
     end
 }
@@ -54,17 +57,22 @@ You can install `neovim-anki-sync` using your favorite plugin manager.
 The plugin automatically maps your notes' folder hierarchy to Anki sub-decks using Anki's `::` separator.
 
 * **How it works:** 
-  The plugin automatically detects the root of your notes by searching upwards for a `.git` folder (or falling back to your active working directory). The directory path of your note file *relative* to this root is converted to Anki's sub-deck hierarchy.
+  The plugin detects the root of your notes by searching upwards for any of `root_markers` (e.g. `.git`, `.obsidian`, `.logseq`, `.root`, or falling back to your active Neovim working directory). The directory path of your note file *relative* to this root is converted to Anki's sub-deck hierarchy.
 * **Example:**
-  If your project root is `/home/user/notes` and you edit a file at:
+  If your `notes_dir` is `/home/user/notes` and you edit a file at:
   `/home/user/notes/Concursos/Estratégia/CFBM/cards.md`
   
-  The plugin will automatically create and sync your cards to the deck:
+  With `include_filename_in_deck = true` (default), the deck will be:
+  `Concursos::Estratégia::CFBM::cards`
+
+  With `include_filename_in_deck = false`:
   `Concursos::Estratégia::CFBM`
+* **Prefixing Decks:**
+  Set `deck_prefix = "Estudos"` to automatically prefix all decks (e.g. `Estudos::Concursos::...`).
 * **Fallback:**
   If the file is directly at the root (no subdirectory) or outside the detected project directory, it falls back to the configured `deck` option (defaulting to `"Default"`).
 * **Custom Root:**
-  If you want to manually specify your notes root directory instead of using git/CWD detection, you can set the `notes_dir` option in the `setup` config.
+  If you want to manually specify your notes root directory instead of using marker/CWD detection, you can set `notes_dir = vim.fn.expand("~/path/to/notes")` in `setup`.
 
 ### 🏷️ Properties & Metadata
 
@@ -142,7 +150,7 @@ Since this is a lightweight Lua port focused on speed and simplicity, it has som
 ## 🗺️ Roadmap / Future Features
 
 * [ ] **Local Media Synchronization:** Detect and upload local image/audio assets to Anki using `storeMediaFile` via curl.
-* [ ] **Markdown to HTML Converter:** Implement a basic Markdown converter to support bold, italics, and code blocks formatting in Anki.
+* [x] **Markdown to HTML Converter:** Native converter supporting bold, italics, highlights (`==`), inline code (` `), links, and fenced code blocks (` ``` `).
 * [ ] **Multiple Card Styles:** Add support for Multiline, Swift Arrow, and custom card templates.
 * [ ] **Interactive Sync Window:** Provide a visual diff/sync window (using `nui.nvim` or `Telescope`) to review changes before pushing to Anki.
 
@@ -150,10 +158,10 @@ Since this is a lightweight Lua port focused on speed and simplicity, it has som
 
 ## 🧪 Running Integration Tests
 
-You can run the headless integration test suite to verify the parser, UUID injector, HTTP client, and synchronization engine:
+You can run the headless test suite to verify the parser, UUID injector, path resolution, and synchronization engine:
 
 ```bash
-nvim --headless -l tests/neovim-sync-test.lua
+nvim --headless -l tests/run_tests.lua
 ```
 
 ---

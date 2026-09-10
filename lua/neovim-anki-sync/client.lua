@@ -2,7 +2,7 @@ local M = {}
 
 M.anki_url = "http://127.0.0.1:8765"
 
--- Executa uma requisição síncrona ao AnkiConnect
+-- Executa uma requisição ao AnkiConnect
 function M.request(action, params)
     local payload = {
         action = action,
@@ -17,16 +17,26 @@ function M.request(action, params)
     local cmd = {
         "curl",
         "-s",
+        "--max-time", "20",
+        "--connect-timeout", "5",
         "-X", "POST",
         "-d", json_payload,
         M.anki_url
     }
     
-    local response = vim.fn.system(cmd)
-    local exit_code = vim.v.shell_error
-    
-    if exit_code ~= 0 then
-        return nil, "Erro de rede: curl falhou com código de saída " .. tostring(exit_code)
+    local response
+    if vim.system then
+        local obj = vim.system(cmd, { text = true }):wait()
+        if obj.code ~= 0 then
+            return nil, "Erro de rede: curl falhou com código de saída " .. tostring(obj.code) .. (obj.stderr and (": " .. obj.stderr) or "")
+        end
+        response = obj.stdout
+    else
+        response = vim.fn.system(cmd)
+        local exit_code = vim.v.shell_error
+        if exit_code ~= 0 then
+            return nil, "Erro de rede: curl falhou com código de saída " .. tostring(exit_code)
+        end
     end
     
     if not response or response == "" then

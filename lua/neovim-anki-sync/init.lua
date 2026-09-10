@@ -5,10 +5,13 @@ local M = {}
 
 -- Default configuration
 M.config = {
-    deck = "Default",            -- Fallback deck when file is outside notes_dir
-    model = "NeovimAnkiCard-Cloze-v2",    -- Note type name in Anki (changed to support v2 layout with breadcrumbs)
+    deck = "Default",                    -- Fallback deck when file is outside notes_dir or relative_dir is empty
+    deck_prefix = "",                    -- Optional prefix prepended to all resolved decks (e.g. "Concursos")
+    include_filename_in_deck = true,     -- Whether to append the filename (without ext) as the final sub-deck
+    model = "NeovimAnkiCard-Cloze-v2",   -- Target note type name in Anki
     anki_url = "http://127.0.0.1:8765",
-    notes_dir = nil              -- Root directory for hierarchical deck mapping (optional)
+    notes_dir = nil,                     -- Root directory for hierarchical deck mapping (optional)
+    root_markers = { ".git", ".obsidian", ".logseq", ".root" } -- Heuristic markers to detect notes root
 }
 
 -- Configure the plugin with user options
@@ -32,19 +35,26 @@ local function hex_decode(str)
 end
 
 --- Resolve notes_dir and relative file paths.
---- If M.config.notes_dir is not configured, it tries to detect the git root,
+--- If M.config.notes_dir is not configured, it tries to detect root using root_markers,
 --- falling back to the current working directory of Neovim.
 local function get_notes_dir_and_relative(filepath)
     filepath = vim.fn.resolve(vim.fn.fnamemodify(filepath, ":p"))
     
     local notes_dir = M.config.notes_dir
     if not notes_dir or notes_dir == "" then
-        local git_dir = vim.fs.find(".git", { path = filepath, upward = true })[1]
-        if git_dir then
-            notes_dir = vim.fs.dirname(git_dir)
-        else
+        local markers = M.config.root_markers or { ".git", ".obsidian", ".logseq", ".root" }
+        for _, marker in ipairs(markers) do
+            local found = vim.fs.find(marker, { path = filepath, upward = true })[1]
+            if found then
+                notes_dir = vim.fs.dirname(found)
+                break
+            end
+        end
+        if not notes_dir or notes_dir == "" then
             notes_dir = vim.fn.getcwd()
         end
+    else
+        notes_dir = vim.fn.expand(notes_dir)
     end
     
     notes_dir = vim.fn.resolve(vim.fn.fnamemodify(notes_dir, ":p"))
@@ -76,18 +86,32 @@ end
 
 --- Resolve the Anki deck name from relative_dir and filename.
 local function resolve_deck_name(relative_dir, filename)
+    local deck_prefix = M.config.deck_prefix or ""
+    local include_filename = M.config.include_filename_in_deck ~= false
+    local name_without_ext = vim.fn.fnamemodify(filename, ":r")
+    
     local base_deck = ""
-    if relative_dir == "" then
-        base_deck = M.config.deck
+    if relative_dir ~= "" then
+        local dir_deck = (relative_dir:gsub("/", "::"))
+        if deck_prefix ~= "" then
+            base_deck = deck_prefix .. "::" .. dir_deck
+        else
+            base_deck = dir_deck
+        end
     else
-        base_deck = (relative_dir:gsub("/", "::"))
+        if deck_prefix ~= "" then
+            base_deck = deck_prefix
+        else
+            base_deck = M.config.deck or ""
+        end
     end
     
-    local name_without_ext = vim.fn.fnamemodify(filename, ":r")
     if base_deck == "" then
         return name_without_ext
-    else
+    elseif include_filename then
         return base_deck .. "::" .. name_without_ext
+    else
+        return base_deck
     end
 end
 -- Ensure the custom note model exists in Anki
@@ -232,7 +256,7 @@ function M.sync(filepath)
     end
 
     -- 5. Parse the local file and inject UUIDs if needed
-    local local_cards, parse_err = parser.parse_file(filepath)
+    local local_cards, parse_err, was_modified = parser.parse_file(filepath)
     if not local_cards then
         vim.notify("Failed to parse file: " .. tostring(parse_err), vim.log.levels.ERROR, { title = "Anki Sync" })
         return false
@@ -243,8 +267,13 @@ function M.sync(filepath)
         return true
     end
 
-    -- Reload buffer if UUIDs were injected
-    vim.cmd("checktime")
+    -- Reload buffer only if modified on disk and wasn't loaded in a buffer
+    local bufnr = vim.fn.bufnr(filepath)
+    if bufnr == -1 or not vim.api.nvim_buf_is_loaded(bufnr) then
+        if was_modified then
+            vim.cmd("checktime")
+        end
+    end
 
     -- 6. Fetch existing notes from Anki for this file or UUIDs
     local hex_path = hex_encode(relative_file)
@@ -379,7 +408,7 @@ function M.sync(filepath)
         local bullets_html = ""
         if card.parent_bullets and #card.parent_bullets > 0 then
             for _, bullet in ipairs(card.parent_bullets) do
-                bullets_html = bullets_html .. "<ul><li>" .. bullet
+                bullets_html = bullets_html .. "<ul><li>" .. parser.markdown_inline_to_html(bullet)
             end
             
             -- Close the bullet tags around the front text
