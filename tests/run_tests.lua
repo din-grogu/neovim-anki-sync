@@ -178,6 +178,74 @@ assert_eq(cards_buf2[1].uuid, cards_buf[1].uuid, "UUID do card permanece o mesmo
 vim.api.nvim_buf_delete(bufnr, { force = true })
 
 -- -----------------------------------------------------------
+-- 5. Testes de formatação Outliner (Cabeçalhos em bullets e pais)
+-- -----------------------------------------------------------
+print("\n5. Testes de formatação Outliner (Cabeçalhos e hierarquia de pais):")
+
+-- Teste de formatação de títulos de cards com cabeçalhos
+local t_h1, lvl1 = parser.format_card_title("- # Título Principal #card")
+assert_eq(t_h1, '<b style="font-size: 1.25em;">Título Principal</b>', "Título de card com nível # recebe estilo h1")
+assert_eq(lvl1, 1, "Nível numérico 1 detectado")
+
+local t_h2, lvl2 = parser.format_card_title("  - ## Ato jurídico #card <!-- id: abc -->")
+assert_eq(t_h2, '<b style="font-size: 1.15em;">Ato jurídico</b>', "Título de card com nível ## recebe estilo h2")
+assert_eq(lvl2, 2, "Nível numérico 2 detectado")
+
+local t_h3, lvl3 = parser.format_card_title("    - ### Termo essencial #card")
+assert_eq(t_h3, '<b style="font-size: 1.05em;">Termo essencial</b>', "Título de card com nível ### recebe estilo h3")
+
+local t_plain, lvl0 = parser.format_card_title("  - Pergunta comum sem cabeçalho #card")
+assert_eq(t_plain, "Pergunta comum sem cabeçalho", "Título de card sem cabeçalho mantém texto padrão")
+assert_eq(lvl0, 0, "Nível numérico 0 para card sem cabeçalho")
+
+-- Teste de formatação e limpeza de bullets pais
+local p_h1 = parser.format_parent_bullet("# Fatos Jurídicos")
+assert_eq(p_h1, "<b>Fatos Jurídicos</b>", "Bullet pai com # é limpo e formatado em negrito")
+
+local p_h2 = parser.format_parent_bullet("## Defeitos do negócio jurídico")
+assert_eq(p_h2, "<b>Defeitos do negócio jurídico</b>", "Bullet pai com ## é limpo e formatado em negrito")
+
+local p_plain = parser.format_parent_bullet("Normas importantes")
+assert_eq(p_plain, "Normas importantes", "Bullet pai comum mantém formatação textual")
+
+local p_container1 = parser.format_parent_bullet("## Cards")
+assert_eq(p_container1, nil, "Container '## Cards' é filtrado e ignorado dos pais")
+
+local p_container2 = parser.format_parent_bullet("### Flashcards")
+assert_eq(p_container2, nil, "Container '### Flashcards' é filtrado e ignorado dos pais")
+
+-- Teste integrado com estrutura real do usuário
+local outliner_lines = {
+    "- # Fatos Jurídicos",
+    "  - ## Ato jurídico #card",
+    "    - Aqueles que independem da vontade humana, mas apresentam efeitos jurídicos.",
+    "    - Morte, nascimento, maioridade, etc.",
+    "  - ## Defeitos do negócio jurídico",
+    "    - ## Cards",
+    "      - Tanto a condição suspensiva quanto o termo inicial... #card",
+}
+
+local parsed_outliner = parser.parse_lines(outliner_lines)
+assert_eq(#parsed_outliner, 2, "Detecta os 2 cartões da estrutura outliner")
+
+-- Card 1 (Iniciado no cabeçalho ## Ato jurídico)
+local card1 = parsed_outliner[1]
+assert_eq(#card1.parent_bullets, 1, "Card 1 possui 1 bullet pai (Fatos Jurídicos)")
+assert_eq(card1.parent_bullets[1], "# Fatos Jurídicos", "Pai do Card 1 é o cabeçalho # Fatos Jurídicos")
+assert_eq(card1.front:match('^<b style="font%-size: 1%.15em;">Ato jurídico</b>') ~= nil, true, "Card 1 inicia com título formatado em destaque")
+assert_eq(card1.front:match("{{c1::") ~= nil, true, "Card 1 possui cloze com os bullets filhos")
+
+-- Card 2 (Sob container ## Cards)
+local card2 = parsed_outliner[2]
+assert_eq(#card2.parent_bullets, 3, "Card 2 captura os 3 pais na árvore de indentação")
+local formatted_p1 = parser.format_parent_bullet(card2.parent_bullets[1])
+local formatted_p2 = parser.format_parent_bullet(card2.parent_bullets[2])
+local formatted_p3 = parser.format_parent_bullet(card2.parent_bullets[3])
+assert_eq(formatted_p1, "<b>Fatos Jurídicos</b>", "Primeiro pai é limpo")
+assert_eq(formatted_p2, "<b>Defeitos do negócio jurídico</b>", "Segundo pai é limpo")
+assert_eq(formatted_p3, nil, "Terceiro pai (## Cards) é filtrado com sucesso")
+
+-- -----------------------------------------------------------
 -- Relatório Final
 -- -----------------------------------------------------------
 print("\n========================================================")

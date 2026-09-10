@@ -77,6 +77,47 @@ function M.markdown_inline_to_html(text)
     return text
 end
 
+--- Limpa e formata um bullet pai para apresentação na árvore de contexto HTML
+--- Remove marcadores de cabeçalho crus ('#', '##'), aplica destaque em negrito e ignora containers 'Cards'
+function M.format_parent_bullet(bullet_text)
+    if not bullet_text or bullet_text == "" then return nil end
+    
+    local clean = bullet_text:gsub("#card", ""):gsub("<!%-%-%s*id:%s*(.-)%s*%-%->", "")
+    clean = vim.trim(clean)
+    
+    -- Ignora marcadores puramente organizacionais de flashcards (ex: "Cards", "## Cards", "Flashcards")
+    local no_hash = clean:gsub("^#+%s*", "")
+    if no_hash:lower():match("^cards?$") or no_hash:lower():match("^flashcards?$") then
+        return nil
+    end
+    
+    -- Se o bullet pai tiver marcadores de cabeçalho Markdown ('#', '##', etc.), formata em negrito limpo
+    local hashes, title = clean:match("^(#+)%s+(.*)")
+    if hashes then
+        return "<b>" .. M.markdown_inline_to_html(vim.trim(title)) .. "</b>"
+    else
+        return M.markdown_inline_to_html(clean)
+    end
+end
+
+--- Extrai e formata o título do cartão.
+--- Se o cartão foi iniciado em um cabeçalho (ex: "## Ato jurídico" ou "- ## Ato jurídico"),
+--- aplica formatação semântica destacada proporcional ao nível do cabeçalho.
+function M.format_card_title(raw_header)
+    local clean = raw_header:gsub("#card", ""):gsub("<!%-%-%s*id:%s*(.-)%s*%-%->", "")
+    clean = clean:gsub("^%s*[%-%*]%s*", "")
+    clean = vim.trim(clean)
+    
+    local hashes, title = clean:match("^(#+)%s+(.*)")
+    if hashes then
+        local lvl = #hashes
+        local font_size = (lvl == 1 and "1.25em") or (lvl == 2 and "1.15em") or "1.05em"
+        return string.format("<b style=\"font-size: %s;\">%s</b>", font_size, M.markdown_inline_to_html(vim.trim(title))), lvl
+    else
+        return M.markdown_inline_to_html(clean), 0
+    end
+end
+
 -- Varre as linhas do arquivo e retorna a lista crua de cartões encontrados
 function M.parse_lines(lines)
     local cards = {}
@@ -277,13 +318,7 @@ function M.parse_lines(lines)
     for _, raw_card in ipairs(cards) do
         local body = table.concat(raw_card.body_lines, "\n")
         
-        local clean_front = raw_card.raw_header
-        clean_front = clean_front:gsub("#card", "")
-        clean_front = clean_front:gsub("<!%-%-%s*id:%s*(.-)%s*%-%->", "")
-        clean_front = clean_front:gsub("^%s*[%-%*]%s*", "")
-        clean_front = clean_front:gsub("^%s*#+%s*", "")
-        clean_front = vim.trim(clean_front)
-        clean_front = M.markdown_inline_to_html(clean_front)
+        local clean_front, header_lvl = M.format_card_title(raw_card.raw_header)
         
         local clean_body = markdown_list_to_html(raw_card.body_lines)
         if clean_body == "" and vim.trim(body) ~= "" then
@@ -302,7 +337,10 @@ function M.parse_lines(lines)
         end
         
         -- Multiline card logic: Combines parent and children in the front field
-        local final_front = clean_front .. "\n" .. clean_body
+        local final_front = clean_front
+        if clean_body ~= "" then
+            final_front = final_front .. "\n" .. clean_body
+        end
         
         -- O verso fica vazio no formato multiline, já que o próprio cloze revela a resposta
         local final_back = ""
