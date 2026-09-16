@@ -442,28 +442,8 @@ function M.sync(filepath)
         end
         card.breadcrumbs_html = breadcrumbs_str
         
-        -- Render parent bullets (Markdown style hierarchy)
-        local active_parents = {}
-        if card.parent_bullets and #card.parent_bullets > 0 then
-            for _, bullet in ipairs(card.parent_bullets) do
-                local formatted = parser.format_parent_bullet(bullet)
-                if formatted then
-                    table.insert(active_parents, formatted)
-                end
-            end
-        end
-        
-        local bullets_html = ""
-        for _, parent_html in ipairs(active_parents) do
-            bullets_html = bullets_html .. "<ul><li>" .. parent_html
-        end
-        
-        bullets_html = bullets_html .. "<ul><li>" .. card.front .. "</li></ul>"
-        
-        for i = 1, #active_parents do
-            bullets_html = bullets_html .. "</li></ul>"
-        end
-        card.final_front = bullets_html
+        -- Render front completo via parser (parent bullets + card.front)
+        card.final_front = parser.build_card_front(card)
         
         -- Tags
         local tags = { "neovim-sync" }

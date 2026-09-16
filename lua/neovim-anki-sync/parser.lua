@@ -339,14 +339,14 @@ function M.parse_lines(lines)
     local processed_cards = {}
     for _, raw_card in ipairs(cards) do
         local body = table.concat(raw_card.body_lines, "\n")
-        
+
         local clean_front, header_lvl = M.format_card_title(raw_card.raw_header)
-        
+
         local clean_body = markdown_list_to_html(raw_card.body_lines)
         if clean_body == "" and vim.trim(body) ~= "" then
             clean_body = M.markdown_inline_to_html(vim.trim(body))
         end
-        
+
         -- Verifica se o usuário já especificou algum cloze manualmente
         local has_cloze = (clean_front .. clean_body):match("{{c%d+::")
         if not has_cloze then
@@ -357,17 +357,15 @@ function M.parse_lines(lines)
                 clean_front = clean_front .. " {{c1::}}"
             end
         end
-        
-        -- Multiline card logic: Combines parent and children in the front field
+
         local final_front = clean_front
         if clean_body ~= "" then
             final_front = final_front .. "\n" .. clean_body
         end
-        
-        -- O verso fica vazio no formato multiline, já que o próprio cloze revela a resposta
+
         local final_back = ""
         local full_content = final_front
-        
+
         -- Extrai tags em linha do cabeçalho
         local inline_tags = {}
         for tag in raw_card.raw_header:gmatch("#([%w_-]+)") do
@@ -375,7 +373,7 @@ function M.parse_lines(lines)
                 table.insert(inline_tags, tag)
             end
         end
-        
+
         table.insert(processed_cards, {
             front = final_front,
             back = final_back,
@@ -390,8 +388,36 @@ function M.parse_lines(lines)
             inline_tags = inline_tags
         })
     end
-    
+
     return processed_cards
+end
+
+--- Monta o HTML final do front do cartao para o AnkiConnect.
+--- Coloca parent bullets como <ul><li> hierarquico FECHADO antes do front.
+--- Card content (com possiveis tabelas e clozes) fica SEPARADO dos lists.
+function M.build_card_front(card)
+    -- Formata parent bullets, filtrando containers
+    local active_parents = {}
+    if card.parent_bullets and #card.parent_bullets > 0 then
+        for _, bullet in ipairs(card.parent_bullets) do
+            local formatted = M.format_parent_bullet(bullet)
+            if formatted then
+                table.insert(active_parents, formatted)
+            end
+        end
+    end
+
+    -- Monta lista de parent bullets FECHADA (sem pendurar o card dentro de <li>)
+    local parts = {}
+    for _, parent_html in ipairs(active_parents) do
+        table.insert(parts, "<ul><li>" .. parent_html .. "</li></ul>")
+    end
+
+    -- Card content vem separado por <br/> — evita tabela dentro de <li> + cloze
+    table.insert(parts, "<br/>")
+    table.insert(parts, card.front)
+
+    return table.concat(parts, "")
 end
 
 --- Analisa as linhas de um buffer carregado no Neovim e injeta UUIDs diretamente no buffer

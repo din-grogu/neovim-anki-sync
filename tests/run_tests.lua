@@ -316,7 +316,7 @@ assert_eq(t_card.front:find('{{c1::Direito a prestação}}') ~= nil, true, "pars
 assert_eq(t_card.front:find('{{c2::Permitida após consumada}}') ~= nil, true, "parse_lines: cloze c2 na célula é preservado")
 assert_eq(t_card.front:find('{{c1::\n<table') == nil, true, "parse_lines: não embrulha tabela já clozada")
 
--- 6.6 Integração: Cartão com tabela sem clozes manuais (auto-cloze da tabela inteira)
+-- 6.6 Integração: Cartão com tabela sem clozes manuais (auto-cloze envolve tabela inteira)
 local card_with_table_autocloze = {
     "- Tabela de conceitos jurídicos #card",
     "  | Conceito | Definição |",
@@ -327,7 +327,19 @@ local parsed_autocloze = parser.parse_lines(card_with_table_autocloze)
 assert_eq(#parsed_autocloze, 1, "parse_lines: detecta cartão de tabela auto-cloze")
 assert_eq(parsed_autocloze[1].front:find('{{c1::\n<table class="anki%-table">') ~= nil, true, "parse_lines: auto-cloze envolve a tabela inteira")
 
--- 6.7 Integração: Cartão misto (bullets e tabela)
+-- 6.7 Integração: build_card_front separa parent bullets fechados do card content
+local card_build = {
+    front = "<b>Título</b>\n{{c1::conteúdo}}",
+    parent_bullets = { "# Pai 1", "## Pai 2", "## Cards" },
+}
+local built_front = parser.build_card_front(card_build)
+assert_eq(built_front:find('<ul><li><b>Pai 1</b></li></ul>') ~= nil, true, "build_card_front: Pai 1 como lista fechada")
+assert_eq(built_front:find('<ul><li><b>Pai 2</b></li></ul>') ~= nil, true, "build_card_front: Pai 2 como lista fechada")
+assert_eq(built_front:find('<br/>') ~= nil, true, "build_card_front: separador <br/> entre pais e card content")
+assert_eq(built_front:find('<b>Título</b>') ~= nil, true, "build_card_front: titulo do card apos separador")
+assert_eq(built_front:find('## Cards') == nil, true, "build_card_front: container ## Cards filtrado")
+
+-- 6.8 Integração: Cartão misto (bullets e tabela)
 local card_mixed = {
     "- Card Misto #card",
     "  - Item antes da tabela",
