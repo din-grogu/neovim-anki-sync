@@ -1,3 +1,5 @@
+local table_parser = require("neovim-anki-sync.table")
+
 local M = {}
 
 -- Gerador de UUID simples
@@ -205,7 +207,8 @@ function M.parse_lines(lines)
                 properties = {},
                 breadcrumbs = card_breadcrumbs,
                 parent_bullets = card_parent_bullets,
-                indent_len = card_indent_len
+                indent_len = card_indent_len,
+                is_header = is_header_card and not is_bullet_card
             }
         elseif current_card then
             -- Linha dentro de um cartão
@@ -213,7 +216,12 @@ function M.parse_lines(lines)
             local line_indent_len = #line_indent_str
             local is_empty = line:match("^%s*$")
             
-            if is_empty or line_indent_len > current_card.indent_len then
+            local belongs_to_card = is_empty or (line_indent_len > current_card.indent_len)
+            if current_card.is_header and not header_level and not is_bullet_card then
+                belongs_to_card = true
+            end
+            
+            if belongs_to_card then
                 -- Verifica se a linha é uma propriedade
                 local k, v = parse_property(line)
                 if k then
@@ -249,14 +257,16 @@ function M.parse_lines(lines)
         table.insert(cards, current_card)
     end
     
-    -- Converte linhas de corpo com bullets para HTML mantendo a hierarquia e blocos de código
+    -- Converte linhas de corpo com bullets para HTML mantendo a hierarquia, blocos de código e tabelas Markdown
     local function markdown_list_to_html(lines)
         local html = ""
         local stack = {}
         local in_fenced_block = false
         local code_block_lines = {}
+        local idx = 1
 
-        for _, line in ipairs(lines) do
+        while idx <= #lines do
+            local line = lines[idx]
             if line:match("^%s*```") or line:match("^%s*~~~") then
                 if in_fenced_block then
                     in_fenced_block = false
@@ -272,8 +282,19 @@ function M.parse_lines(lines)
                     in_fenced_block = true
                     code_block_lines = {}
                 end
+                idx = idx + 1
             elseif in_fenced_block then
                 table.insert(code_block_lines, line)
+                idx = idx + 1
+            elseif table_parser.is_table_start(lines, idx) then
+                local table_lines, next_idx = table_parser.extract_table_block(lines, idx)
+                local table_html = table_parser.markdown_table_to_html(table_lines, M.markdown_inline_to_html)
+                if #stack > 0 then
+                    html = html .. "<br/>" .. table_html
+                else
+                    html = html .. table_html .. "<br/>"
+                end
+                idx = next_idx
             else
                 local indent, bullet, text = line:match("^(%s*)([%-%*])%s(.*)")
                 if indent then
@@ -302,6 +323,7 @@ function M.parse_lines(lines)
                         end
                     end
                 end
+                idx = idx + 1
             end
         end
         

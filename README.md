@@ -25,6 +25,7 @@ Having migrated from Logseq to Neovim, the main goal of this fork was to port th
 * **In-place UUID Injection:** Automatically generates and appends unique IDs (`<!-- id: <uuid> -->`) to your notes when syncing new cards, allowing you to move cards around without losing scheduling history.
 * **Auto-Initialization:** Automatically creates the target deck and the custom `NeovimAnkiCard-Cloze-v2` note type (with fields `Text`, `Back`, `Breadcrumb`, `UUID`, and `Config`, styled with CSS mimicking Logseq bubble breadcrumbs and night mode) in Anki if they do not exist.
 * **Inline Markdown & Code Blocks:** Supports inline Markdown (`**bold**`, `*italic*`, `==highlight==`, `` `code` ``, `[text](url)`) and fenced code blocks (``` / ~~~), safely preserving Anki clozes and ignoring `#card` inside code.
+* **Markdown Tables Support:** Converts GFM Markdown tables into styled HTML tables (`<table class="anki-table">`), supporting column alignments (`:---`, `:---:`, `---:`), clozes inside cells, and full light/night mode compatibility.
 * **Asynchronous Execution:** Runs in the background using Neovim's job APIs, ensuring your editor UI never freezes during sync.
 
 ---
@@ -141,6 +142,17 @@ Use standard Markdown syntax inside your cards:
   - Use ==highlight== for key terms and `code` for commands.
 ```
 
+### Markdown Tables
+You can include GFM Markdown tables inside your cards. They support column alignments (`:---`, `:---:`, `---:`), inline formatting, and Cloze deletions inside cells or automatically applied across the whole table:
+
+```markdown
+- Comparativo entre Prescrição e Decadência #card
+  | Critério | Prescrição | Decadência |
+  | :--- | :--- | :--- |
+  | Objeto | {{c1::Direito a prestação}} | {{c1::Direito potestativo}} |
+  | Renúncia | {{c2::Permitida após consumada}} | {{c2::Não permitida (legal)}} |
+```
+
 ---
 
 ## ⌨️ User Commands
@@ -165,6 +177,7 @@ Since this is a lightweight Lua port focused on speed and simplicity, it has som
 
 * [ ] **Local Media Synchronization:** Detect and upload local image/audio assets to Anki using `storeMediaFile` via curl.
 * [x] **Markdown to HTML Converter:** Native converter supporting bold, italics, highlights (`==`), inline code (` `), links, and fenced code blocks (` ``` `).
+* [x] **Markdown Tables Support:** Native parser converting GFM Markdown tables into styled HTML tables with cell clozes and alignments.
 * [x] **Multiline Cloze Cards:** Automatic conversion of indented bullet trees into cloze cards preserving HTML list hierarchy.
 * [ ] **Additional Card Styles:** Support for Swift Arrow (`->`) and customizable note templates.
 * [ ] **Interactive Sync Window:** Provide a visual diff/sync window (using `nui.nvim` or `Telescope`) to review changes before pushing to Anki.

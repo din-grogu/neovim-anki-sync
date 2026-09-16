@@ -129,12 +129,7 @@ local function ensure_anki_model()
         end
     end
 
-    if not has_model then
-        local ok, create_err = client.request("createModel", {
-            modelName = M.config.model,
-            inOrderFields = { "Text", "Back", "Breadcrumb", "UUID", "Config" },
-            isCloze = true,
-            css = [[
+    local model_css = [[
 .card {
  font-family: arial;
  font-size: 20px;
@@ -165,6 +160,24 @@ local function ensure_anki_model()
  font-weight: bold;
  color: blue;
 }
+table.anki-table {
+ border-collapse: collapse;
+ width: 100%;
+ margin: 12px 0;
+ font-size: 15px;
+}
+table.anki-table th, table.anki-table td {
+ border: 1px solid #c8d1d9;
+ padding: 6px 10px;
+}
+table.anki-table th {
+ background-color: #f0f3f6;
+ font-weight: bold;
+ text-align: left;
+}
+table.anki-table tr:nth-child(even) {
+ background-color: #f9fbfd;
+}
 body.nightMode {
  background-color: #2c2c2c;
  color: #fcfcfc;
@@ -183,7 +196,32 @@ body.nightMode .bubble {
  color: #bfbfbf;
  background-color: #4d4d4d;
 }
-]],
+body.nightMode table.anki-table th, body.nightMode table.anki-table td {
+ border: 1px solid #444c56;
+}
+body.nightMode table.anki-table th {
+ background-color: #323842;
+ color: #fcfcfc;
+}
+body.nightMode table.anki-table tr:nth-child(even) {
+ background-color: #262a30;
+}
+]]
+
+    if has_model then
+        -- Atualiza o CSS do modelo existente no Anki para incluir estilos de tabela
+        client.request("updateModelStyling", {
+            model = {
+                name = M.config.model,
+                css = model_css
+            }
+        })
+    else
+        local ok, create_err = client.request("createModel", {
+            modelName = M.config.model,
+            inOrderFields = { "Text", "Back", "Breadcrumb", "UUID", "Config" },
+            isCloze = true,
+            css = model_css,
             cardTemplates = {
                 {
                     Name = "Card 1",

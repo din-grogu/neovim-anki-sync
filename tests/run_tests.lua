@@ -6,6 +6,7 @@ package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local sync = require("neovim-anki-sync")
 local parser = require("neovim-anki-sync.parser")
+local table_parser = require("neovim-anki-sync.table")
 
 local total_tests = 0
 local passed_tests = 0
@@ -244,6 +245,113 @@ local formatted_p3 = parser.format_parent_bullet(card2.parent_bullets[3])
 assert_eq(formatted_p1, "<b>Fatos Jurídicos</b>", "Primeiro pai é limpo")
 assert_eq(formatted_p2, "<b>Defeitos do negócio jurídico</b>", "Segundo pai é limpo")
 assert_eq(formatted_p3, nil, "Terceiro pai (## Cards) é filtrado com sucesso")
+
+-- -----------------------------------------------------------
+-- 6. Testes do módulo de tabelas Markdown (table.lua e integração com parser.lua)
+-- -----------------------------------------------------------
+print("\n6. Testes de tabelas Markdown para HTML e Anki:")
+
+-- 6.1 split_cells
+local cells1 = table_parser.split_cells("| Col 1 | Col 2 | Col 3 |")
+assert_eq(#cells1, 3, "split_cells: detecta 3 células")
+assert_eq(cells1[1], "Col 1", "split_cells: célula 1 limpa")
+assert_eq(cells1[2], "Col 2", "split_cells: célula 2 limpa")
+assert_eq(cells1[3], "Col 3", "split_cells: célula 3 limpa")
+
+local cells_escaped = table_parser.split_cells("| Valor com \\| pipe | Coluna 2 |")
+assert_eq(#cells_escaped, 2, "split_cells: pipe escapado (\\|) não quebra coluna")
+assert_eq(cells_escaped[1], "Valor com | pipe", "split_cells: restaura pipe escapado")
+
+local cells_code = table_parser.split_cells("| `a | b` | `c` |")
+assert_eq(#cells_code, 2, "split_cells: pipe dentro de código inline não quebra coluna")
+assert_eq(cells_code[1], "`a | b`", "split_cells: preserva código com pipe intacto")
+
+local cells_empty = table_parser.split_cells("| A | | C |")
+assert_eq(#cells_empty, 3, "split_cells: não descarta célula vazia no meio")
+assert_eq(cells_empty[2], "", "split_cells: célula vazia é string vazia")
+
+-- 6.2 is_table_row e is_delimiter_row
+assert_eq(table_parser.is_table_row("| A | B |"), true, "is_table_row: linha normal de tabela")
+assert_eq(table_parser.is_table_row("- Bullet normal"), false, "is_table_row: bullet não é tabela")
+assert_eq(table_parser.is_table_row("# Cabeçalho"), false, "is_table_row: cabeçalho não é tabela")
+assert_eq(table_parser.is_delimiter_row("| :--- | :---: | ---: |"), true, "is_delimiter_row: linha separadora válida")
+assert_eq(table_parser.is_delimiter_row("| Texto | Normal |"), false, "is_delimiter_row: linha de texto não é separadora")
+assert_eq(table_parser.is_delimiter_row("---"), false, "is_delimiter_row: linha horizontal simples não é tabela")
+
+-- 6.3 parse_alignments
+local aligns = table_parser.parse_alignments("| :--- | :---: | ---: | --- |")
+assert_eq(aligns[1], "left", "parse_alignments: alinhamento à esquerda (:---)")
+assert_eq(aligns[2], "center", "parse_alignments: alinhamento centralizado (:---:)")
+assert_eq(aligns[3], "right", "parse_alignments: alinhamento à direita (---:)")
+assert_eq(aligns[4], nil, "parse_alignments: alinhamento padrão (---)")
+
+-- 6.4 markdown_table_to_html puro
+local raw_tbl_lines = {
+    "| Conceito | Descrição |",
+    "| :--- | ---: |",
+    "| **Negrito** | Valor 1 |",
+    "| `Código` | ==Destaque== |"
+}
+local tbl_html = table_parser.markdown_table_to_html(raw_tbl_lines, parser.markdown_inline_to_html)
+assert_eq(tbl_html:find('<table class="anki%-table">') ~= nil, true, "markdown_table_to_html: gera tag table com classe anki-table")
+assert_eq(tbl_html:find('<th style="text%-align: left;">Conceito</th>') ~= nil, true, "markdown_table_to_html: th com alinhamento esquerdo")
+assert_eq(tbl_html:find('<th style="text%-align: right;">Descrição</th>') ~= nil, true, "markdown_table_to_html: th com alinhamento direito")
+assert_eq(tbl_html:find('<b>Negrito</b>') ~= nil, true, "markdown_table_to_html: processa inline markdown negrito")
+assert_eq(tbl_html:find('<code>Código</code>') ~= nil, true, "markdown_table_to_html: processa inline code")
+assert_eq(tbl_html:find('<mark>Destaque</mark>') ~= nil, true, "markdown_table_to_html: processa highlight")
+
+-- 6.5 Integração: Cartão com tabela e clozes nas células
+local card_with_table_cloze = {
+    "- Comparativo entre Prescrição e Decadência #card",
+    "  | Critério | Prescrição | Decadência |",
+    "  | :--- | :--- | :--- |",
+    "  | Objeto | {{c1::Direito a prestação}} | {{c1::Direito potestativo}} |",
+    "  | Renúncia | {{c2::Permitida após consumada}} | {{c2::Não permitida (legal)}} |"
+}
+local parsed_table_cards = parser.parse_lines(card_with_table_cloze)
+assert_eq(#parsed_table_cards, 1, "parse_lines: detecta 1 cartão com tabela")
+local t_card = parsed_table_cards[1]
+assert_eq(t_card.front:find('<table class="anki%-table">') ~= nil, true, "parse_lines: frente do cartão contém tag anki-table")
+assert_eq(t_card.front:find('{{c1::Direito a prestação}}') ~= nil, true, "parse_lines: cloze c1 na célula é preservado")
+assert_eq(t_card.front:find('{{c2::Permitida após consumada}}') ~= nil, true, "parse_lines: cloze c2 na célula é preservado")
+assert_eq(t_card.front:find('{{c1::\n<table') == nil, true, "parse_lines: não embrulha tabela já clozada")
+
+-- 6.6 Integração: Cartão com tabela sem clozes manuais (auto-cloze da tabela inteira)
+local card_with_table_autocloze = {
+    "- Tabela de conceitos jurídicos #card",
+    "  | Conceito | Definição |",
+    "  | --- | --- |",
+    "  | Fato | Qualquer acontecimento |"
+}
+local parsed_autocloze = parser.parse_lines(card_with_table_autocloze)
+assert_eq(#parsed_autocloze, 1, "parse_lines: detecta cartão de tabela auto-cloze")
+assert_eq(parsed_autocloze[1].front:find('{{c1::\n<table class="anki%-table">') ~= nil, true, "parse_lines: auto-cloze envolve a tabela inteira")
+
+-- 6.7 Integração: Cartão misto (bullets e tabela)
+local card_mixed = {
+    "- Card Misto #card",
+    "  - Item antes da tabela",
+    "  | Col 1 | Col 2 |",
+    "  | --- | --- |",
+    "  | A | B |",
+    "  - Item após a tabela"
+}
+local parsed_mixed = parser.parse_lines(card_mixed)
+assert_eq(#parsed_mixed, 1, "parse_lines: detecta cartão misto")
+local mixed_html = parsed_mixed[1].front
+assert_eq(mixed_html:find('Item antes da tabela') ~= nil, true, "parse_lines: bullet anterior preservado")
+assert_eq(mixed_html:find('<table class="anki%-table">') ~= nil, true, "parse_lines: tabela intermediária renderizada")
+-- 6.8 Integração: Tabela iniciada em bullet de outliner (- | Col 1 | Col 2 |)
+local card_outliner_table = {
+    "    - ### Sinônimos para os componentes patrimoniais #card <!-- id: a84ada8a-1a87-4b83-b4de-76b8163da379 -->",
+    "      - | Ativo | Passivo | Patrimônio Líquido |",
+    "        | :---: | :---: | :---: |",
+    "        | Patrimônio Bruto | {{c1::Passivo Exigível}} | Situação Líquida |"
+}
+local parsed_outliner_table = parser.parse_lines(card_outliner_table)
+assert_eq(#parsed_outliner_table, 1, "parse_lines: detecta tabela iniciada com bullet (- | ... |)")
+assert_eq(parsed_outliner_table[1].front:find('<table class="anki%-table">') ~= nil, true, "parse_lines: outliner bullet convertido para table")
+assert_eq(parsed_outliner_table[1].front:find('<th style="text%-align: center;">Ativo</th>') ~= nil, true, "parse_lines: cabeçalho th limpo sem bullet")
 
 -- -----------------------------------------------------------
 -- Relatório Final
