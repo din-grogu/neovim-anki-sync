@@ -392,9 +392,8 @@ function M.parse_lines(lines)
     return processed_cards
 end
 
---- Monta o HTML final do front do cartao para o AnkiConnect.
---- Coloca parent bullets como <ul><li> hierarquico FECHADO antes do front.
---- Card content (com possiveis tabelas e clozes) fica SEPARADO dos lists.
+--- Monta o HTML final do front do cartao para o AnkiConnect, preservando a hierarquia
+--- de indentação e bulletpoints (pais -> cartão -> filhos).
 function M.build_card_front(card)
     -- Formata parent bullets, filtrando containers
     local active_parents = {}
@@ -407,17 +406,18 @@ function M.build_card_front(card)
         end
     end
 
-    -- Monta lista de parent bullets FECHADA (sem pendurar o card dentro de <li>)
-    local parts = {}
+    local bullets_html = ""
     for _, parent_html in ipairs(active_parents) do
-        table.insert(parts, "<ul><li>" .. parent_html .. "</li></ul>")
+        bullets_html = bullets_html .. "<ul><li>" .. parent_html
     end
 
-    -- Card content vem separado por <br/> — evita tabela dentro de <li> + cloze
-    table.insert(parts, "<br/>")
-    table.insert(parts, card.front)
+    bullets_html = bullets_html .. "<ul><li>" .. (card.front or "") .. "</li></ul>"
 
-    return table.concat(parts, "")
+    for i = 1, #active_parents do
+        bullets_html = bullets_html .. "</li></ul>"
+    end
+
+    return bullets_html
 end
 
 --- Analisa as linhas de um buffer carregado no Neovim e injeta UUIDs diretamente no buffer

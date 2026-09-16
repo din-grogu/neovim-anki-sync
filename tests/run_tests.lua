@@ -327,19 +327,25 @@ local parsed_autocloze = parser.parse_lines(card_with_table_autocloze)
 assert_eq(#parsed_autocloze, 1, "parse_lines: detecta cartão de tabela auto-cloze")
 assert_eq(parsed_autocloze[1].front:find('{{c1::\n<table class="anki%-table">') ~= nil, true, "parse_lines: auto-cloze envolve a tabela inteira")
 
--- 6.7 Integração: build_card_front separa parent bullets fechados do card content
+-- 6.7 Integração: build_card_front monta hierarquia de parent bullets e card aninhados
 local card_build = {
     front = "<b>Título</b>\n{{c1::conteúdo}}",
     parent_bullets = { "# Pai 1", "## Pai 2", "## Cards" },
 }
 local built_front = parser.build_card_front(card_build)
-assert_eq(built_front:find('<ul><li><b>Pai 1</b></li></ul>') ~= nil, true, "build_card_front: Pai 1 como lista fechada")
-assert_eq(built_front:find('<ul><li><b>Pai 2</b></li></ul>') ~= nil, true, "build_card_front: Pai 2 como lista fechada")
-assert_eq(built_front:find('<br/>') ~= nil, true, "build_card_front: separador <br/> entre pais e card content")
-assert_eq(built_front:find('<b>Título</b>') ~= nil, true, "build_card_front: titulo do card apos separador")
+assert_eq(built_front:find('<ul><li><b>Pai 1</b><ul><li><b>Pai 2</b><ul><li><b>Título</b>') ~= nil, true, "build_card_front: pais e card em hierarquia aninhada")
 assert_eq(built_front:find('## Cards') == nil, true, "build_card_front: container ## Cards filtrado")
+assert_eq(built_front:find('{{c1::conteúdo}}</li></ul></li></ul></li></ul>') ~= nil, true, "build_card_front: fechamento balanceado de listas")
 
--- 6.8 Integração: Cartão misto (bullets e tabela)
+-- 6.8 Integração: build_card_front para cartão sem pais mantém bullet raiz
+local card_no_parents = {
+    front = "Pergunta sem pais\n{{c1::Resposta}}",
+    parent_bullets = {},
+}
+local built_no_parents = parser.build_card_front(card_no_parents)
+assert_eq(built_no_parents, "<ul><li>Pergunta sem pais\n{{c1::Resposta}}</li></ul>", "build_card_front: card sem pais envolvido em bullet raiz")
+
+-- 6.9 Integração: Cartão misto (bullets e tabela)
 local card_mixed = {
     "- Card Misto #card",
     "  - Item antes da tabela",
@@ -353,7 +359,7 @@ assert_eq(#parsed_mixed, 1, "parse_lines: detecta cartão misto")
 local mixed_html = parsed_mixed[1].front
 assert_eq(mixed_html:find('Item antes da tabela') ~= nil, true, "parse_lines: bullet anterior preservado")
 assert_eq(mixed_html:find('<table class="anki%-table">') ~= nil, true, "parse_lines: tabela intermediária renderizada")
--- 6.8 Integração: Tabela iniciada em bullet de outliner (- | Col 1 | Col 2 |)
+-- 6.10 Integração: Tabela iniciada em bullet de outliner (- | Col 1 | Col 2 |)
 local card_outliner_table = {
     "    - ### Sinônimos para os componentes patrimoniais #card <!-- id: a84ada8a-1a87-4b83-b4de-76b8163da379 -->",
     "      - | Ativo | Passivo | Patrimônio Líquido |",
