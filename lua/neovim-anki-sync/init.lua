@@ -282,21 +282,7 @@ function M.sync(filepath, opts)
     local filename = vim.fn.fnamemodify(filepath, ":t")
     local deck_name = resolve_deck_name(relative_dir, filename)
 
-    -- 3. Ensure deck exists
-    local deck_ok, deck_err = ensure_deck(deck_name)
-    if not deck_ok then
-        vim.notify(deck_err, vim.log.levels.ERROR, { title = "Anki Sync" })
-        return false
-    end
-
-    -- 4. Ensure note model exists
-    local model_ok, model_err = ensure_anki_model()
-    if not model_ok then
-        vim.notify(model_err, vim.log.levels.ERROR, { title = "Anki Sync" })
-        return false
-    end
-
-    -- 5. Parse the local file and inject UUIDs if needed
+    -- 3. Parse the local file and inject UUIDs if needed (BEFORE creating deck)
     local local_cards, parse_err, was_modified = parser.parse_file(filepath)
     if not local_cards then
         vim.notify("Failed to parse file: " .. tostring(parse_err), vim.log.levels.ERROR, { title = "Anki Sync" })
@@ -316,6 +302,20 @@ function M.sync(filepath, opts)
         if was_modified then
             vim.cmd("checktime")
         end
+    end
+
+    -- 4. Ensure deck exists (only after confirming there are cards to sync)
+    local deck_ok, deck_err = ensure_deck(deck_name)
+    if not deck_ok then
+        vim.notify(deck_err, vim.log.levels.ERROR, { title = "Anki Sync" })
+        return false
+    end
+
+    -- 5. Ensure note model exists
+    local model_ok, model_err = ensure_anki_model()
+    if not model_ok then
+        vim.notify(model_err, vim.log.levels.ERROR, { title = "Anki Sync" })
+        return false
     end
 
     -- 6. Fetch existing notes from Anki for this file or UUIDs
