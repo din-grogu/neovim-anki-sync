@@ -256,7 +256,10 @@ local function ensure_deck(deck_name)
 end
 
 -- Main sync coordinator
-function M.sync(filepath)
+-- opts (optional):
+--   silent: bool  – skip the per-file summary notification (used by sync_dir)
+function M.sync(filepath, opts)
+    opts = opts or {}
     -- If no filepath provided, use the current buffer
     if not filepath or filepath == "" then
         filepath = vim.api.nvim_buf_get_name(0)
@@ -301,8 +304,10 @@ function M.sync(filepath)
     end
 
     if #local_cards == 0 then
-        vim.notify("No cards (#card) found in file.", vim.log.levels.INFO, { title = "Anki Sync" })
-        return true
+        if not opts.silent then
+            vim.notify("No cards (#card) found in file.", vim.log.levels.INFO, { title = "Anki Sync" })
+        end
+        return { created = 0, updated = 0, deleted = 0, unchanged = 0 }
     end
 
     -- Reload buffer only if modified on disk and wasn't loaded in a buffer
@@ -466,7 +471,13 @@ function M.sync(filepath)
         -- Deck override
         local explicit_deck = card.properties.deck or card.global_properties.deck
         if explicit_deck and explicit_deck ~= "" then
-            card.target_deck = explicit_deck:gsub("/", "::")
+            local resolved = explicit_deck:gsub("/", "::")
+            local prefix = M.config.deck_prefix or ""
+            if prefix ~= "" then
+                card.target_deck = prefix .. "::" .. resolved
+            else
+                card.target_deck = resolved
+            end
         else
             card.target_deck = default_deck_name
         end
@@ -577,13 +588,109 @@ function M.sync(filepath)
         end
     end
 
-    -- 9. Notify the user
-    local summary = string.format(
-        "Anki Sync complete [%s]:\n- Created: %d\n- Updated: %d\n- Deleted: %d\n- Unchanged: %d",
-        deck_name, #to_create, #to_update, #to_delete, #to_keep
+    -- 9. Notify the user (skipped in silent/batch mode)
+    local stats = {
+        created   = #to_create,
+        updated   = #to_update,
+        deleted   = #to_delete,
+        unchanged = #to_keep,
+    }
+    if not opts.silent then
+        local summary = string.format(
+            "Anki Sync complete [%s]:\n- Created: %d\n- Updated: %d\n- Deleted: %d\n- Unchanged: %d",
+            deck_name, stats.created, stats.updated, stats.deleted, stats.unchanged
+        )
+        vim.notify(summary, vim.log.levels.INFO, { title = "Anki Sync" })
+    end
+    return stats
+end
+
+--- Sync all .md files inside a directory (recursively).
+--- The target directory must be within the configured notes_dir.
+--- @param dirpath string|nil  Subpath relative to notes_dir, or absolute path inside notes_dir.
+---                            Defaults to notes_dir itself.
+function M.sync_dir(dirpath)
+    -- Resolve notes_dir (same logic as get_notes_dir_and_relative but without a filepath)
+    local notes_dir = M.config.notes_dir
+    if not notes_dir or notes_dir == "" then
+        notes_dir = vim.fn.getcwd()
+    else
+        notes_dir = vim.fn.resolve(vim.fn.fnamemodify(vim.fn.expand(notes_dir), ":p"))
+    end
+    if not notes_dir:match("/$") then
+        notes_dir = notes_dir .. "/"
+    end
+
+    -- Resolve target directory
+    local target_dir
+    if not dirpath or dirpath == "" then
+        target_dir = notes_dir
+    else
+        local expanded = vim.fn.resolve(vim.fn.fnamemodify(vim.fn.expand(dirpath), ":p"))
+        if not expanded:match("/$") then
+            expanded = expanded .. "/"
+        end
+        -- Validate the path is inside notes_dir
+        if expanded:sub(1, #notes_dir) ~= notes_dir then
+            vim.notify(
+                string.format("Directory '%s' is outside notes_dir ('%s').", dirpath, notes_dir),
+                vim.log.levels.ERROR,
+                { title = "Anki Sync" }
+            )
+            return
+        end
+        target_dir = expanded
+    end
+
+    -- Collect all .md files under target_dir
+    local files = vim.fn.globpath(target_dir, "**/*.md", false, true)
+    if #files == 0 then
+        vim.notify(
+            "No .md files found in: " .. target_dir,
+            vim.log.levels.WARN,
+            { title = "Anki Sync" }
+        )
+        return
+    end
+
+    -- Check Anki connection once before starting
+    local version, conn_err = client.request("version")
+    if not version then
+        vim.notify(
+            "Could not connect to Anki. Make sure Anki is running.\nError: " .. tostring(conn_err),
+            vim.log.levels.ERROR,
+            { title = "Anki Sync" }
+        )
+        return
+    end
+
+    -- Sync each file silently and accumulate totals
+    local totals = { created = 0, updated = 0, deleted = 0, unchanged = 0, errors = 0 }
+    for _, filepath in ipairs(files) do
+        local result = M.sync(filepath, { silent = true })
+        if not result then
+            totals.errors = totals.errors + 1
+        else
+            totals.created   = totals.created   + result.created
+            totals.updated   = totals.updated   + result.updated
+            totals.deleted   = totals.deleted   + result.deleted
+            totals.unchanged = totals.unchanged + result.unchanged
+        end
+    end
+
+    -- Final summary
+    local rel_dir = target_dir:sub(#notes_dir + 1):gsub("/$", "")
+    if rel_dir == "" then rel_dir = "(raiz)" end
+    local level = totals.errors > 0 and vim.log.levels.WARN or vim.log.levels.INFO
+    vim.notify(
+        string.format(
+            "Anki Sync Dir [%s] — %d arquivo(s)\n- Criados: %d\n- Atualizados: %d\n- Deletados: %d\n- Sem mudança: %d\n- Erros: %d",
+            rel_dir, #files,
+            totals.created, totals.updated, totals.deleted, totals.unchanged, totals.errors
+        ),
+        level,
+        { title = "Anki Sync" }
     )
-    vim.notify(summary, vim.log.levels.INFO, { title = "Anki Sync" })
-    return true
 end
 
 -- Expose helpers for testing
