@@ -142,6 +142,21 @@ sync.setup({
 local nd_tilde = sync._get_notes_dir_and_relative("/home/dieb/nextcloud/Documentos/Concursos/sefaz-df/direito-civil/notes/aula-04.md")
 assert_eq(nd_tilde:sub(1, 1), "/", "Expansão de ~ resolve para caminho absoluto")
 
+-- Caso F: notes_dir apontando para a pasta pai (Documentos), mantendo Concursos na hierarquia
+sync.setup({
+    notes_dir = "~/nextcloud/Documentos",
+    include_filename_in_deck = true
+})
+local _, rd_concursos = sync._get_notes_dir_and_relative("/home/dieb/nextcloud/Documentos/Concursos/sefaz-df/direito-civil/aula-04.md")
+local deck_concursos = sync._resolve_deck_name(rd_concursos, "aula-04.md")
+assert_eq(deck_concursos, "Concursos::sefaz-df::direito-civil::aula-04", "notes_dir pai preserva subpasta Concursos no baralho")
+
+-- Caso G: Persistência de configuração mesmo após reload do módulo
+package.loaded["neovim-anki-sync"] = nil
+local sync_reloaded = require("neovim-anki-sync")
+assert_eq(sync_reloaded.config.notes_dir, "~/nextcloud/Documentos", "Configuração notes_dir persiste via _G após reload")
+
+
 
 -- -----------------------------------------------------------
 -- 4. Testes de injeção de UUID via Buffer API

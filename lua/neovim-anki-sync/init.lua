@@ -14,10 +14,16 @@ M.config = {
     root_markers = { ".git", ".obsidian", ".logseq", ".root" } -- Heuristic markers to detect notes root
 }
 
+-- Restore configuration if module was reloaded
+if _G._neovim_anki_sync_config then
+    M.config = vim.tbl_deep_extend("force", M.config, _G._neovim_anki_sync_config)
+end
+
 -- Configure the plugin with user options
 function M.setup(opts)
     opts = opts or {}
     M.config = vim.tbl_deep_extend("force", M.config, opts)
+    _G._neovim_anki_sync_config = M.config
     client.anki_url = M.config.anki_url
 end
 
@@ -626,20 +632,37 @@ function M.sync_dir(dirpath)
     if not dirpath or dirpath == "" then
         target_dir = notes_dir
     else
-        local expanded = vim.fn.resolve(vim.fn.fnamemodify(vim.fn.expand(dirpath), ":p"))
-        if not expanded:match("/$") then
-            expanded = expanded .. "/"
+        local raw = vim.fn.expand(dirpath)
+        -- If relative path (e.g. "Concursos"), first try resolving relative to notes_dir
+        local candidate
+        if not raw:match("^/") and not raw:match("^~") then
+            candidate = vim.fn.resolve(vim.fn.fnamemodify(notes_dir .. raw, ":p"))
+        else
+            candidate = vim.fn.resolve(vim.fn.fnamemodify(raw, ":p"))
         end
-        -- Validate the path is inside notes_dir
-        if expanded:sub(1, #notes_dir) ~= notes_dir then
-            vim.notify(
-                string.format("Directory '%s' is outside notes_dir ('%s').", dirpath, notes_dir),
-                vim.log.levels.ERROR,
-                { title = "Anki Sync" }
-            )
-            return
+        if not candidate:match("/$") then
+            candidate = candidate .. "/"
         end
-        target_dir = expanded
+
+        if candidate:sub(1, #notes_dir) == notes_dir and vim.fn.isdirectory(candidate) == 1 then
+            target_dir = candidate
+        else
+            -- Fallback: try resolving relative to CWD
+            local cwd_candidate = vim.fn.resolve(vim.fn.fnamemodify(raw, ":p"))
+            if not cwd_candidate:match("/$") then
+                cwd_candidate = cwd_candidate .. "/"
+            end
+            if cwd_candidate:sub(1, #notes_dir) == notes_dir and vim.fn.isdirectory(cwd_candidate) == 1 then
+                target_dir = cwd_candidate
+            else
+                vim.notify(
+                    string.format("Directory '%s' is not a valid directory inside notes_dir ('%s').", dirpath, notes_dir),
+                    vim.log.levels.ERROR,
+                    { title = "Anki Sync" }
+                )
+                return
+            end
+        end
     end
 
     -- Collect all .md files under target_dir
@@ -693,8 +716,8 @@ function M.sync_dir(dirpath)
     )
 end
 
---- Delete all empty decks in Anki (decks with 0 cards, including sub-decks).
---- Processes deepest decks first so child decks are cleaned before parents.
+--- Delete all empty decks in Anki (decks with 0 cards in themselves and 0 cards in any sub-decks).
+--- Uses collection-wide card analysis and batch deletion for maximum performance and safety.
 --- Never deletes the "Default" deck.
 function M.cleanup_empty_decks()
     -- 1. Check connection
@@ -711,38 +734,68 @@ function M.cleanup_empty_decks()
         return
     end
 
-    -- 3. Sort by depth (deepest first) so children are deleted before parents
-    table.sort(decks, function(a, b)
+    -- 3. Query all cards across collection to determine which deck trees contain cards
+    local all_cards, cards_err = client.request("findCards", { query = "" })
+    if not all_cards then
+        vim.notify("Failed to query cards in Anki: " .. tostring(cards_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+        return
+    end
+
+    local active_deck_trees = {}
+    if #all_cards > 0 then
+        local cards_info, info_err = client.request("cardsInfo", { cards = all_cards })
+        if cards_info then
+            for _, c in ipairs(cards_info) do
+                local d = c.deckName
+                if d then
+                    local current = ""
+                    for part in d:gmatch("[^:]+") do
+                        if current == "" then
+                            current = part
+                        else
+                            current = current .. "::" .. part
+                        end
+                        active_deck_trees[current] = true
+                    end
+                end
+            end
+        end
+    end
+
+    -- 4. Find decks not in active_deck_trees
+    local empty_decks = {}
+    for _, deck in ipairs(decks) do
+        if deck ~= "Default" and not active_deck_trees[deck] then
+            table.insert(empty_decks, deck)
+        end
+    end
+
+    if #empty_decks == 0 then
+        vim.notify("Nenhum deck vazio encontrado no Anki.", vim.log.levels.INFO, { title = "Anki Sync" })
+        return
+    end
+
+    -- Sort deepest first so child decks are deleted before parents
+    table.sort(empty_decks, function(a, b)
         local _, ca = a:gsub("::", "")
         local _, cb = b:gsub("::", "")
         if ca ~= cb then return ca > cb end
         return a < b
     end)
 
-    -- 4. Check each deck and delete if empty
-    local deleted = {}
-    for _, deck in ipairs(decks) do
-        if deck ~= "Default" then
-            local cards = client.request("findCards", { query = string.format("deck:%q", deck) })
-            if cards and #cards == 0 then
-                local ok = client.request("deleteDecks", { decks = { deck }, cardsToo = false })
-                if ok ~= nil then
-                    table.insert(deleted, deck)
-                end
-            end
-        end
+    -- 5. Delete empty decks in batch with cardsToo = true (required by AnkiConnect since Anki 2.1.28)
+    local _, del_err = client.request("deleteDecks", { decks = empty_decks, cardsToo = true })
+    if del_err then
+        vim.notify("Falha ao deletar decks vazios: " .. tostring(del_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+        return
     end
 
-    -- 5. Report
-    if #deleted > 0 then
-        vim.notify(
-            string.format("Removidos %d deck(s) vazio(s):\n- %s", #deleted, table.concat(deleted, "\n- ")),
-            vim.log.levels.INFO,
-            { title = "Anki Sync" }
-        )
-    else
-        vim.notify("Nenhum deck vazio encontrado.", vim.log.levels.INFO, { title = "Anki Sync" })
-    end
+    -- 6. Report
+    vim.notify(
+        string.format("Removidos %d deck(s) vazio(s) do Anki com sucesso.", #empty_decks),
+        vim.log.levels.INFO,
+        { title = "Anki Sync" }
+    )
 end
 
 -- Expose helpers for testing
