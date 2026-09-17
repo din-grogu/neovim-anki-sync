@@ -693,6 +693,58 @@ function M.sync_dir(dirpath)
     )
 end
 
+--- Delete all empty decks in Anki (decks with 0 cards, including sub-decks).
+--- Processes deepest decks first so child decks are cleaned before parents.
+--- Never deletes the "Default" deck.
+function M.cleanup_empty_decks()
+    -- 1. Check connection
+    local version, conn_err = client.request("version")
+    if not version then
+        vim.notify("Could not connect to Anki.\nError: " .. tostring(conn_err), vim.log.levels.ERROR, { title = "Anki Sync" })
+        return
+    end
+
+    -- 2. Get all deck names
+    local decks, err = client.request("deckNames")
+    if not decks then
+        vim.notify("Failed to get deck names: " .. tostring(err), vim.log.levels.ERROR, { title = "Anki Sync" })
+        return
+    end
+
+    -- 3. Sort by depth (deepest first) so children are deleted before parents
+    table.sort(decks, function(a, b)
+        local _, ca = a:gsub("::", "")
+        local _, cb = b:gsub("::", "")
+        if ca ~= cb then return ca > cb end
+        return a < b
+    end)
+
+    -- 4. Check each deck and delete if empty
+    local deleted = {}
+    for _, deck in ipairs(decks) do
+        if deck ~= "Default" then
+            local cards = client.request("findCards", { query = string.format("deck:%q", deck) })
+            if cards and #cards == 0 then
+                local ok = client.request("deleteDecks", { decks = { deck }, cardsToo = false })
+                if ok ~= nil then
+                    table.insert(deleted, deck)
+                end
+            end
+        end
+    end
+
+    -- 5. Report
+    if #deleted > 0 then
+        vim.notify(
+            string.format("Removidos %d deck(s) vazio(s):\n- %s", #deleted, table.concat(deleted, "\n- ")),
+            vim.log.levels.INFO,
+            { title = "Anki Sync" }
+        )
+    else
+        vim.notify("Nenhum deck vazio encontrado.", vim.log.levels.INFO, { title = "Anki Sync" })
+    end
+end
+
 -- Expose helpers for testing
 M._get_notes_dir_and_relative = get_notes_dir_and_relative
 M._resolve_deck_name = resolve_deck_name
